@@ -2687,6 +2687,25 @@ function Build-MainForm {
     $script:ConnectButton.Cursor = [Windows.Forms.Cursors]::Hand
     $script:ConnectButton.AccessibleName = 'Conectar uma biblioteca do SharePoint'
     $header.Controls.Add($script:ConnectButton)
+    # The WinFsp FLOSS exception requires its notice and repository link in the UI.
+    $aboutLink = New-Object Windows.Forms.LinkLabel
+    $aboutLink.Text = 'Sobre e licenças'
+    $aboutLink.AutoSize = $true
+    $aboutLink.Location = New-Object Drawing.Point(838, 84)
+    $aboutLink.Anchor = 'Top,Right'
+    $aboutLink.LinkColor = [Drawing.Color]::FromArgb(205, 229, 231)
+    $aboutLink.ActiveLinkColor = [Drawing.Color]::White
+    $aboutLink.add_LinkClicked({
+        $notice = "$($script:AppName) $($script:AppVersion) - licença MIT`n`n" +
+            "rclone - https://rclone.org`nCopyright (C) Nick Craig-Wood. Licença MIT.`n`n" +
+            "WinFsp - Windows File System Proxy, Copyright (C) Bill Zissimopoulos`nhttps://github.com/winfsp/winfsp`n`n" +
+            "Avisos completos: THIRD-PARTY-NOTICES.txt na pasta de instalação.`n`n" +
+            'Abrir o repositório do WinFsp?'
+        if ([Windows.Forms.MessageBox]::Show($notice, $script:AppName, 'YesNo', 'Information') -eq 'Yes') {
+            Open-DocumentUri 'https://github.com/winfsp/winfsp'
+        }
+    })
+    $header.Controls.Add($aboutLink)
 
     $sectionTitle = New-Object Windows.Forms.Label
     $sectionTitle.Text = 'Suas unidades'
