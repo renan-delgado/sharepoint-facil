@@ -783,6 +783,7 @@ function Read-ControllerState {
         return [pscustomobject]@{
             pid = [int]$saved.pid
             port = [int]$saved.port
+            startTime = [long]$saved.startTime
             user = 'spf'
             baseUrl = [string]$saved.baseUrl
             password = $password
@@ -801,6 +802,7 @@ function Save-ControllerState {
         version = 2
         pid = [int]$Controller.pid
         port = [int]$Controller.port
+        startTime = [long]$Controller.startTime
         baseUrl = [string]$Controller.baseUrl
         configPath = [IO.Path]::GetFullPath($script:RcloneConfigFile)
         configFingerprint = Get-ConfigPasswordFingerprint
@@ -840,9 +842,34 @@ function Stop-IncompatibleControllerIfIdle {
     return $true
 }
 
+function Test-ControllerIdentity {
+    param($Controller)
+    # Every RC request carries the controller credential, so only talk to the
+    # app's own rclone: same PID, same executable, same start time, and the
+    # loopback listener owned by that PID.
+    $process = Get-Process -Id ([int]$Controller.pid) -ErrorAction SilentlyContinue
+    if (-not $process) { return $false }
+    try {
+        if (-not [IO.Path]::GetFullPath([string]$process.Path).Equals([IO.Path]::GetFullPath($script:RclonePath), [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        $startTime = $process.StartTime.ToUniversalTime().Ticks
+    } catch { return $false }
+    # State saved by older versions has no start time; PID, path and listener still apply.
+    if ([long]$Controller.startTime -and [long]$Controller.startTime -ne $startTime) { return $false }
+    $key = '{0}|{1}|{2}' -f $Controller.pid, $Controller.port, $startTime
+    if ($script:VerifiedControllerKey -eq $key) { return $true }
+    # While this process holds the port no other account can bind it, so the
+    # slow listener lookup runs once per process.
+    $owners = @(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort ([int]$Controller.port) -State Listen -ErrorAction SilentlyContinue |
+        ForEach-Object { [int]$_.OwningProcess } | Select-Object -Unique)
+    if ($owners.Count -ne 1 -or $owners[0] -ne [int]$Controller.pid) { return $false }
+    $script:VerifiedControllerKey = $key
+    return $true
+}
+
 function Test-Controller {
     param($Controller)
     if (-not $Controller) { return $false }
+    if (-not (Test-ControllerIdentity $Controller)) { return $false }
     try {
         $reply = Invoke-ControllerRequest -Endpoint 'core/version' -Body @{} -Controller $Controller -TimeoutSeconds 2
         $match = [regex]::Match([string]$reply.version, '^v?(\d+)\.(\d+)')
@@ -935,6 +962,7 @@ function Start-Controller {
             $candidate = [pscustomobject]@{
                 pid = $process.Id
                 port = $port
+                startTime = $process.StartTime.ToUniversalTime().Ticks
                 user = 'spf'
                 baseUrl = $baseUrl
                 password = $password
@@ -1855,12 +1883,14 @@ function New-MountRequest {
         # Download large files over parallel ranged requests.
         vfs_read_chunk_streams = 8
         vfs_read_chunk_size = '8M'
-        # The cmount/WinFsp network-drive path requires link translation.
         # SharePoint rewrites Office files on upload (library metadata), so the
         # stored size/hash never match the cache. Without these switches every
         # Office save fails as "corrupted on transfer" and is retried forever.
         # See rclone docs: "Unexpected file size/hash differences on Sharepoint".
-        _config = @{ Links = $true; IgnoreSize = $true; IgnoreChecksum = $true }
+        # Links stays off: with it, any library writer can upload a
+        # .rclonelink that appears as a symlink to an arbitrary local or UNC
+        # path. cmount in network mode works without it (verified 2026-10-23).
+        _config = @{ IgnoreSize = $true; IgnoreChecksum = $true }
     }
 }
 

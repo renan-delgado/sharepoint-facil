@@ -20,7 +20,8 @@ SharePoint confiável no Windows sem esconder as limitações do backend.
 | Exclusão | `hard_delete=false` | Arquivos removidos continuam passando pela lixeira do SharePoint. |
 | Versões | `no_versions=false` | O histórico de versões da biblioteca é preservado. |
 | Antivírus Microsoft | `av_override=false` | O aplicativo não força o download de conteúdo marcado como malware. |
-| Symlinks | tradução habilitada no processo VFS | Necessária para a montagem de rede `cmount` usada pelo WinFsp; não expõe symlinks nativos no SharePoint. |
+| Symlinks | tradução **desligada** (sem `Links`) | Com a tradução ligada, qualquer pessoa com escrita na biblioteca podia enviar um `.rclonelink` que aparecia na unidade como link simbólico para um caminho local ou UNC qualquer. O `cmount` em modo de rede funciona sem ela (verificado em 23/10/2026: montagem, salvamento no estilo Office e envio real). Efeito colateral: o rclone registra uma vez, ao montar, `symlinks not supported without the --links flag: /`, sem impacto. |
+| Controlador local | credencial RC só enviada ao rclone do próprio app | Antes de qualquer requisição, o app confere PID, executável, horário de início e o dono da porta de escuta em `127.0.0.1` (`Test-ControllerIdentity`). Impede que outro usuário do mesmo computador receba a credencial ou o token OAuth ocupando a porta. |
 
 ## Atualização automática
 

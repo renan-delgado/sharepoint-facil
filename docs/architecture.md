@@ -47,7 +47,9 @@ Seções de `RcloneDriveManager.ps1`, na ordem do arquivo:
   o arquivo está numa letra mapeada; fora dela, entrega ao verbo `Open` do
   Office.
 - **App → rclone:** só pela API RC local (`Invoke-ControllerRequest`),
-  autenticada; o token OAuth fica no `rclone.conf` criptografado.
+  autenticada, e só depois de `Test-ControllerIdentity` confirmar que a porta
+  pertence ao rclone iniciado pelo app; o token OAuth fica no `rclone.conf`
+  criptografado.
 - **App → Graph:** só `graph.microsoft.com` por HTTPS, com o token do remote
   da própria biblioteca (`Get-ProfileAccessToken`); POST sem repetição
   automática.

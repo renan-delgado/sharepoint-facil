@@ -90,8 +90,40 @@ try {
     $mountRequest = New-MountRequest $script:Profiles[0]
     Assert-Test ($mountRequest.poll_interval -eq '15s' -and $mountRequest.dir_cache_time -eq '24h') 'Mount is not configured for prompt automatic remote change detection'
     Assert-Test ($mountRequest.attr_timeout -eq '10s' -and $mountRequest.vfs_read_chunk_streams -eq 8) 'Mount lost attribute caching or parallel reads'
-    Assert-Test ($mountRequest.vfs_cache_mode -eq 'full' -and $mountRequest._config.Links) 'Office-safe mount options changed unexpectedly'
+    Assert-Test ($mountRequest.vfs_cache_mode -eq 'full') 'Office-safe mount options changed unexpectedly'
+    Assert-Test (-not $mountRequest._config.Contains('Links') -and -not $mountRequest.Contains('links') -and -not $mountRequest.Contains('vfs_links')) 'Mount must not translate .rclonelink files into local symlinks'
     Assert-Test ($mountRequest._config.IgnoreSize -and $mountRequest._config.IgnoreChecksum) 'Mount must tolerate SharePoint rewriting Office files on upload'
+
+    # The RC credential is only sent to the app's own rclone listener.
+    & {
+        $script:RclonePath = 'C:\App\rclone.exe'
+        $start = [DateTime]::new(2026, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)
+        $script:FakeProcess = [pscustomobject]@{ Path = 'C:\App\rclone.exe'; StartTime = $start }
+        $script:ListenerOwner = 4242
+        $script:ListenerLookups = 0
+        $script:Probes = 0
+        function Get-Process { [CmdletBinding()] param($Id); if ($Id -eq 4242) { return $script:FakeProcess } }
+        function Get-NetTCPConnection {
+            [CmdletBinding()] param($LocalAddress, $LocalPort, $State)
+            Assert-Test ($LocalAddress -eq '127.0.0.1' -and $LocalPort -eq 50000 -and $State -eq 'Listen') 'Listener lookup must target the loopback controller port'
+            $script:ListenerLookups++
+            [pscustomobject]@{ OwningProcess = $script:ListenerOwner }
+        }
+        function Invoke-ControllerRequest { $script:Probes++; [pscustomobject]@{ version = 'v1.75.1' } }
+        $controller = [pscustomobject]@{ pid = 4242; port = 50000; startTime = $start.Ticks; user = 'spf'; baseUrl = 'x'; password = 'y' }
+
+        $script:VerifiedControllerKey = $null
+        $script:ListenerOwner = 999
+        Assert-Test (-not (Test-Controller $controller) -and $script:Probes -eq 0) 'Controller credential sent to a listener owned by another process'
+        $script:ListenerOwner = 4242
+        $script:FakeProcess.Path = 'C:\Other\rclone.exe'
+        Assert-Test (-not (Test-Controller $controller) -and $script:Probes -eq 0) 'Controller accepted a different executable'
+        $script:FakeProcess.Path = 'C:\App\rclone.exe'
+        Assert-Test (-not (Test-Controller ([pscustomobject]@{ pid = 4242; port = 50000; startTime = $start.AddSeconds(1).Ticks })) -and $script:Probes -eq 0) 'Controller accepted a reused PID'
+        Assert-Test (-not (Test-Controller ([pscustomobject]@{ pid = 7; port = 50000; startTime = 0 })) -and $script:Probes -eq 0) 'Controller accepted a dead PID'
+        Assert-Test ((Test-Controller $controller) -and (Test-Controller $controller) -and $script:Probes -eq 2 -and $script:ListenerLookups -eq 2) 'Verified controller was rejected or the listener lookup was not cached'
+        $script:VerifiedControllerKey = $null
+    }
     $script:ShellUpdates = @()
     function Send-ShellDirectoryUpdate { param([string]$Path); $script:ShellUpdates += $Path }
     Notify-ProfileExplorerViews $script:Profiles[0] @('Z:\Contratos', 'Y:\Outro')

@@ -109,8 +109,13 @@ não foram alteradas por esse motivo.
 
 - 23/10/2026, modo base (estado atual) sobre o commit `0b4e54a`, prompt 13
   do toolkit, subagente Opus, somente leitura.
-- Situação: nenhum achado crítico, alto ou médio. Detalhes e
-  acompanhamento ficam no relatório privado, fora do repositório.
+- Situação: nenhum achado crítico, alto ou médio. Os dois achados de baixa
+  severidade foram corrigidos no mesmo dia (identidade do controlador local
+  e tradução de links simbólicos desligada; ver
+  [AUDITORIA](../AUDITORIA-RCLONE-SHAREPOINT.md)), com testes de regressão e
+  validação real: controlador em execução aceito, porta errada recusada,
+  unidade montada sem `Links` e arquivo `.docx` enviado ao SharePoint.
+  Sugestões de reforço continuam no relatório privado.
 - Checagens feitas pelo revisor: testes locais, hash e versão do rclone,
   hash e assinatura do MSI do WinFsp, busca de segredos nos 3 commits.
   Não testado em execução real: controlador, mount, links simbólicos e
