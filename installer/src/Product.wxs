@@ -42,36 +42,11 @@
         </Component>
         <Component Id="DocumentContextMenu" Guid="{A5A63BAC-03D9-466A-98F8-EA6325BCF60B}" Bitness="always64">
           <RegistryKey Root="HKLM" Key="Software\Classes\AllFilesystemObjects\shell\SharePointFacil" ForceDeleteOnUninstall="yes">
-            <RegistryValue Name="MUIVerb" Value="SharePoint Fácil" Type="string" KeyPath="yes" />
-            <RegistryValue Name="SubCommands" Value="" Type="string" />
+            <RegistryValue Name="MUIVerb" Value="Abrir no SharePoint" Type="string" KeyPath="yes" />
             <RegistryValue Name="Icon" Value="[INSTALLFOLDER]SharePointFacil.ico" Type="string" />
-            <RegistryKey Key="shell\01Exclusive">
-              <RegistryValue Value="Reservar este arquivo e abrir no Office" Type="string" />
-              <RegistryValue Name="MultiSelectModel" Value="Single" Type="string" />
-              <RegistryKey Key="command">
-                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -DocumentAction Exclusive -DocumentPath &quot;%1&quot;" Type="string" />
-              </RegistryKey>
-            </RegistryKey>
-            <RegistryKey Key="shell\02Coauthor">
-              <RegistryValue Value="Abrir para coautoria" Type="string" />
-              <RegistryValue Name="MultiSelectModel" Value="Single" Type="string" />
-              <RegistryKey Key="command">
-                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -DocumentAction Coauthor -DocumentPath &quot;%1&quot;" Type="string" />
-              </RegistryKey>
-            </RegistryKey>
-            <RegistryKey Key="shell\03Web">
-              <RegistryValue Value="Abrir no SharePoint" Type="string" />
-              <RegistryValue Name="MultiSelectModel" Value="Single" Type="string" />
-              <RegistryKey Key="command">
-                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -DocumentAction SharePoint -DocumentPath &quot;%1&quot;" Type="string" />
-              </RegistryKey>
-            </RegistryKey>
-            <RegistryKey Key="shell\04Finish">
-              <RegistryValue Value="Concluir edição exclusiva" Type="string" />
-              <RegistryValue Name="MultiSelectModel" Value="Single" Type="string" />
-              <RegistryKey Key="command">
-                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -DocumentAction Finish -DocumentPath &quot;%1&quot;" Type="string" />
-              </RegistryKey>
+            <RegistryValue Name="MultiSelectModel" Value="Single" Type="string" />
+            <RegistryKey Key="command">
+              <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -DocumentAction SharePoint -DocumentPath &quot;%1&quot;" Type="string" />
             </RegistryKey>
           </RegistryKey>
         </Component>

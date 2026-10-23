@@ -8,8 +8,8 @@ using System.Windows.Forms;
 
 [assembly: AssemblyTitle("SharePoint Facil")]
 [assembly: AssemblyCompany("UTI DA INFORMATICA LTDA")]
-[assembly: AssemblyVersion("1.1.5.0")]
-[assembly: AssemblyFileVersion("1.1.5.0")]
+[assembly: AssemblyVersion("1.1.6.0")]
+[assembly: AssemblyFileVersion("1.1.6.0")]
 
 internal static class Launcher
 {
@@ -72,7 +72,7 @@ internal static class Launcher
         else if (args.Length == 4 && args[0].Equals("-DocumentAction", StringComparison.OrdinalIgnoreCase)
             && args[2].Equals("-DocumentPath", StringComparison.OrdinalIgnoreCase))
         {
-            string action = Array.Find(new[] { "Exclusive", "Coauthor", "SharePoint", "Finish" },
+            string action = Array.Find(new[] { "SharePoint" },
                 delegate(string candidate) { return candidate.Equals(args[1], StringComparison.OrdinalIgnoreCase); });
             if (action == null || String.IsNullOrWhiteSpace(args[3]) || args[3].IndexOfAny(new[] { '\0', '\r', '\n', '"' }) >= 0)
                 throw new ArgumentException("Comando de documento invalido.");

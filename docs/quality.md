@@ -6,7 +6,7 @@
 |---|---|
 | `pwsh -NoProfile -File scripts\check.ps1` | Verificação canônica: lint sem erros + os 3 testes abaixo |
 | `... scripts\check.ps1 -VerifyUi` | Também desenha a janela e verifica sobreposição no tamanho mínimo |
-| `tests\Test-DocumentActions.ps1` | Fluxos de documento, duplo clique (`Auto`), URLs confiáveis, cache, reservas, opções do mount. Graph simulado |
+| `tests\Test-DocumentActions.ps1` | Duplo clique (`Auto`), "Abrir no SharePoint", URLs confiáveis, cache pendente, link do OneDrive, identidade do controlador, opções do mount. Graph simulado |
 | `tests\Test-Launcher.ps1` | Inicializador compila como GUI x64, não abre console, preserva argumentos, recusa comandos arbitrários e roteia o duplo clique |
 | `installer\scripts\Test-InstallerLayout.ps1` | Layout estático do WiX: componentes, verbos, atalhos, payload aprovado |
 | `RcloneDriveManager.ps1 -SelfTest` | rclone e WinFsp reais montando um remote em memória |
@@ -37,8 +37,8 @@ aparece como `SKIPPED`.
 ## Estratégia de testes
 
 Os testes carregam as funções do script pelo AST, substituem Graph, rclone e
-Office por simulações, e verificam decisões e falhas, como reserva duplicada,
-resposta perdida, cache sujo e URL não confiável. Eles **não** provam o
+Office por simulações, e verificam decisões e falhas, como cache sujo, envio
+pendente, URL não confiável e controlador local falso. Eles **não** provam o
 comportamento no Microsoft 365. Mudanças em envio, Office ou instalador
 exigem validação numa biblioteca real, registrada em [setup.md](setup.md).
 Não há suíte E2E nem medição de cobertura.

@@ -2,7 +2,7 @@
     [switch]$AutoMount,
     [switch]$SelfTest,
     [switch]$ShellWatcher,
-    [ValidateSet('Exclusive', 'Coauthor', 'SharePoint', 'Finish', 'Auto')]
+    [ValidateSet('SharePoint', 'Auto')]
     [string]$DocumentAction,
     [string]$DocumentPath
 )
@@ -16,7 +16,7 @@ Add-Type -AssemblyName System.Security
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:AppName = 'SharePoint Fácil'
-$script:AppVersion = '1.1.5'
+$script:AppVersion = '1.1.6'
 $script:ExpectedRcloneHash = '033EEE51C9AD47C2DE2624B6674D355274BCD6CF0027A5F85DB4437BA24AE81C'
 $script:RclonePath = Join-Path $PSScriptRoot 'rclone.exe'
 $script:DataDir = Join-Path $env:LOCALAPPDATA 'SharePointFacil'
@@ -1308,15 +1308,6 @@ function Get-TokenAccountName {
     return ''
 }
 
-function Get-TokenUserId {
-    param([string]$AccessToken)
-    # rclone's OAuth app has no User.Read scope, so /me is forbidden; the
-    # token's oid is the same Entra object ID Graph uses in identity sets.
-    $claims = Get-TokenClaimSet $AccessToken
-    $id = [Guid]::Empty
-    if ($claims -and [Guid]::TryParse([string]$claims.oid, [ref]$id)) { return [string]$claims.oid }
-    return ''
-}
 
 function Request-MicrosoftAuthorization {
     $result = Invoke-RcloneProcess -Arguments @('authorize', 'onedrive') -Message 'Entre com sua conta Microsoft no navegador para liberar o acesso às bibliotecas.' -TimeoutSeconds 300
@@ -1525,19 +1516,12 @@ function Get-ProfileAccessToken {
     return [string]$token.access_token
 }
 
-function Get-DocumentItemUri {
-    param($Profile, [string]$ItemId)
-    return 'https://graph.microsoft.com/v1.0/drives/' + [Uri]::EscapeDataString([string]$Profile.driveId) + '/items/' + [Uri]::EscapeDataString($ItemId)
-}
-
 function Get-DocumentMetadataUri {
     param([string]$Uri)
     if ([string]::IsNullOrWhiteSpace($Uri) -or $Uri.Contains('?')) {
         throw 'Endereço de consulta Microsoft inválido.'
     }
-    # The publication facet is not returned by Graph unless it is selected.
-    # Checkout ownership cannot be confirmed safely without it.
-    return $Uri + '?$select=id,name,webUrl,webDavUrl,file,remoteItem,publication'
+    return $Uri + '?$select=id,name,webUrl,webDavUrl,file,remoteItem'
 }
 
 function Get-TrustedDocumentUrl {
@@ -1586,48 +1570,6 @@ function Open-LocalDocument {
     [void][Diagnostics.Process]::Start($info)
 }
 
-function Invoke-GraphDocumentPost {
-    param([string]$Uri, [string]$AccessToken, $Body = $null)
-    $parsed = [Uri]$Uri
-    if ($parsed.Scheme -ne 'https' -or $parsed.Host -ne 'graph.microsoft.com' -or $parsed.UserInfo -or -not $parsed.IsDefaultPort) {
-        throw 'Endereço de operação Microsoft inválido.'
-    }
-    $handler = New-Object Net.Http.HttpClientHandler
-    $handler.AllowAutoRedirect = $false
-    $client = New-Object Net.Http.HttpClient($handler)
-    $request = New-Object Net.Http.HttpRequestMessage([Net.Http.HttpMethod]::Post, $parsed)
-    $response = $null
-    try {
-        $request.Headers.Authorization = New-Object Net.Http.Headers.AuthenticationHeaderValue('Bearer', $AccessToken)
-        if ($null -ne $Body) {
-            $request.Content = New-Object Net.Http.StringContent(($Body | ConvertTo-Json -Compress), [Text.Encoding]::UTF8, 'application/json')
-        }
-        # Mutations are never retried automatically; a timeout may have committed.
-        $response = Wait-UiTask ($client.SendAsync($request)) $null 35
-        if ([int]$response.StatusCode -ne 204) {
-            throw ('A Microsoft não confirmou a operação (HTTP {0}). Confira a reserva no SharePoint antes de tentar novamente.' -f [int]$response.StatusCode)
-        }
-    } finally {
-        if ($response) { $response.Dispose() }
-        $request.Dispose()
-        $client.Dispose()
-    }
-}
-
-function Read-DocumentReservations {
-    $file = Join-Path $script:DataDir 'reservations.json'
-    if (-not (Test-Path -LiteralPath $file)) { return @() }
-    # Never silently recover an older journal: it could release a newer checkout.
-    $data = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
-    if ($data.version -ne 1 -or -not $data.PSObject.Properties['reservations']) { throw 'O registro de reservas está inválido. Consulte o suporte; as reservas no SharePoint foram preservadas.' }
-    return @($data.reservations)
-}
-
-function Save-DocumentReservations {
-    param([object[]]$Reservations)
-    Write-AtomicText (Join-Path $script:DataDir 'reservations.json') (@{ version = 1; reservations = @($Reservations) } | ConvertTo-Json -Depth 6)
-}
-
 function Assert-DocumentCacheClean {
     param($Profile)
     $mounts = @(Get-ActiveMounts -ThrowOnError)
@@ -1651,15 +1593,9 @@ function Assert-DocumentCacheClean {
     if ($cache.IsUncertain -or $cache.IsDirty) { throw 'Há alterações locais pendentes ou não verificáveis. Conclua os envios antes de editar online.' }
 }
 
-function Assert-OwnedDocumentCheckout {
-    param($Item, [string]$UserId)
-    if ($Item.publication.level -ne 'checkout' -or -not $UserId -or [string]$Item.publication.checkedOutBy.user.id -ne $UserId) {
-        throw 'Não foi possível confirmar sua reserva no SharePoint. A edição foi interrompida; confira o documento no site.'
-    }
-}
-
 function Invoke-DocumentAction {
-    param([string]$Action, [string]$Path, [switch]$ConfirmedSavedAndClosed, [string]$ReservationItemId)
+    param([string]$Action, [string]$Path)
+    if ($Action -notin @('SharePoint', 'Auto')) { throw 'Ação de documento inválida.' }
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $guard = New-Object Threading.Mutex($false, ('Local\SharePointFacil-Documents-' + $sid))
     $held = $false
@@ -1672,82 +1608,13 @@ function Invoke-DocumentAction {
         $target = Get-DocumentTarget $Path
         $profile = $target.Profile
         $token = Get-ProfileAccessToken $profile
-        $lookupUri = if ($ReservationItemId) { Get-DocumentItemUri $profile $ReservationItemId } else { $target.Uri }
-        $item = Invoke-GraphGet (Get-DocumentMetadataUri $lookupUri) $token $null
-        $url = Get-TrustedDocumentUrl $profile $item
-        if ($Action -eq 'SharePoint') { Open-DocumentUri $url; return 'Aberto no SharePoint.' }
-        if ($Action -eq 'Auto') {
-            # Local edits not yet uploaded are newer than the server copy.
-            Assert-DocumentCacheClean $profile
-            # A checked-out item still opens by URL: Office shows the checkout state.
-            Open-DocumentUri (Get-OfficeDocumentUri $profile $item)
-            return 'Documento aberto no Office pelo SharePoint.'
-        }
-        if ($Action -notin @('Exclusive', 'Coauthor', 'Finish', 'Reconcile')) { throw 'Ação de documento inválida.' }
-        $itemUri = Get-DocumentItemUri $profile ([string]$item.id)
-        $entries = @(Read-DocumentReservations)
-        $matches = @($entries | Where-Object { $_.driveId -eq $profile.driveId -and $_.itemId -eq $item.id })
-        if ($matches.Count -gt 1) { throw 'O registro contém reservas duplicadas. Consulte o suporte.' }
-        $entry = if ($matches.Count -eq 1) { $matches[0] } else { $null }
-        if ($Action -eq 'Reconcile') {
-            if (-not $entry) { throw 'Não há registro local para conferir.' }
-            if ($item.publication.level -ne 'published' -or $item.publication.checkedOutBy) {
-                throw 'A Microsoft ainda não confirmou o fim da reserva. Confira e conclua a edição no SharePoint.'
-            }
-            Save-DocumentReservations @($entries | Where-Object { $_ -ne $entry })
-            return 'O SharePoint confirmou que não há reserva. O registro local foi encerrado.'
-        }
+        $item = Invoke-GraphGet (Get-DocumentMetadataUri $target.Uri) $token $null
+        if ($Action -eq 'SharePoint') { Open-DocumentUri (Get-TrustedDocumentUrl $profile $item); return 'Aberto no SharePoint.' }
+        # Local edits not yet uploaded are newer than the server copy.
         Assert-DocumentCacheClean $profile
-        $officeUri = Get-OfficeDocumentUri $profile $item
-        if ($Action -eq 'Coauthor') {
-            if ($entry -or $item.publication.level -eq 'checkout') { throw 'Este documento possui uma reserva. Conclua a edição exclusiva no SharePoint antes da coautoria.' }
-            if ([IO.Path]::GetExtension([string]$item.name).ToLowerInvariant() -notin @('.docx', '.xlsx', '.pptx')) {
-                throw 'Para coautoria, use DOCX, XLSX ou PPTX. Converta outros formatos pelo Office.'
-            }
-            Open-DocumentUri $officeUri
-            return 'Documento aberto no Office pelo SharePoint. A coautoria depende do Office e das regras da biblioteca.'
-        }
-        $userId = Get-TokenUserId $token
-        if (-not $userId) { throw 'Não foi possível identificar a conta desta biblioteca.' }
-        if ($Action -eq 'Finish') {
-            if (-not $entry) { throw 'Não há reserva registrada neste computador. Conclua reservas externas no SharePoint.' }
-            if (-not $ConfirmedSavedAndClosed) { throw 'Salve, aguarde o Office confirmar o envio e feche o documento antes de concluir.' }
-            if ($entry.state -ne 'Reserved' -or [string]$entry.userId -ne $userId) {
-                throw 'A reserva exige conferência no SharePoint. Nenhum check-in automático será realizado.'
-            }
-            Assert-OwnedDocumentCheckout $item ([string]$entry.userId)
-            $entry.state = 'CheckinPending'
-            Save-DocumentReservations $entries
-            Invoke-GraphDocumentPost ($itemUri + '/checkin') $token @{ comment = 'Edição concluída pelo SharePoint Fácil' }
-            $entries = @($entries | Where-Object { $_ -ne $entry })
-            Save-DocumentReservations $entries
-            try {
-                $null = Invoke-ControllerRequest 'vfs/forget' @{ fs = ($profile.remote + ':') } $script:Controller 8
-                Notify-ProfileExplorerViews $profile
-            } catch {
-                Write-AppLog 'WARN' ('O conteúdo será atualizado pelo observador: ' + $_.Exception.Message)
-            }
-            return 'Check-in confirmado pelo SharePoint. As regras de aprovação da biblioteca continuam valendo.'
-        }
-        # Never adopt a pre-existing checkout, including one by the same account.
-        if ($entry -or $item.publication.level -eq 'checkout') {
-            throw 'O documento já está reservado ou exige conferência. Use Reservas / concluir ou abra no SharePoint.'
-        }
-        $entry = [pscustomobject]@{
-            driveId = [string]$profile.driveId; itemId = [string]$item.id; userId = $userId
-            profileId = [string]$profile.id; relativePath = $target.Relative; name = [string]$item.name
-            state = 'CheckoutPending'; createdAt = [DateTimeOffset]::UtcNow.ToString('o')
-        }
-        $entries += $entry
-        Save-DocumentReservations $entries
-        Invoke-GraphDocumentPost ($itemUri + '/checkout') $token
-        $confirmed = Invoke-GraphGet (Get-DocumentMetadataUri $itemUri) $token $null
-        Assert-OwnedDocumentCheckout $confirmed $userId
-        $entry.state = 'Reserved'
-        Save-DocumentReservations $entries
-        # If Office cannot launch, retain the reservation for explicit recovery.
-        Open-DocumentUri (Get-OfficeDocumentUri $profile $confirmed)
-        return 'Reserva confirmada para este arquivo. Salve e feche no Office; depois use Reservas / concluir. A unidade continua gravável: não edite outra cópia pela unidade enquanto usa este documento online.'
+        # Office handles checkout/check-in itself for files opened by URL.
+        Open-DocumentUri (Get-OfficeDocumentUri $profile $item)
+        return 'Documento aberto no Office pelo SharePoint.'
     } finally {
         if ($held) { $guard.ReleaseMutex() }
         $guard.Dispose()
@@ -1755,7 +1622,7 @@ function Invoke-DocumentAction {
 }
 
 function Show-DocumentAction {
-    param([string]$Action, [string]$Path, [string]$ReservationItemId)
+    param([string]$Action, [string]$Path)
     if ($Action -eq 'Auto') {
         # A double-click must always open the file: fall back to the drive copy.
         try { $null = Invoke-DocumentAction 'Auto' $Path }
@@ -1765,95 +1632,11 @@ function Show-DocumentAction {
         }
         return
     }
-    try {
-        $confirmed = $false
-        if ($Action -eq 'Finish') {
-            $answer = [Windows.Forms.MessageBox]::Show('O Office já confirmou que o arquivo foi salvo no SharePoint e você fechou o documento? O check-in liberará a versão enviada. Alterações offline do Office não são verificadas pelo rclone.', $script:AppName, 'YesNo', 'Warning')
-            if ($answer -ne 'Yes') { return }
-            $confirmed = $true
-        }
-        $message = Invoke-DocumentAction $Action $Path -ConfirmedSavedAndClosed:$confirmed -ReservationItemId $ReservationItemId
-        if ($Action -in @('Exclusive', 'Finish', 'Reconcile')) { [Windows.Forms.MessageBox]::Show($message, $script:AppName, 'OK', 'Information') | Out-Null }
-    } catch {
+    try { $null = Invoke-DocumentAction $Action $Path }
+    catch {
         Write-AppLog 'ERROR' ('Operação de documento: ' + $_.Exception.Message)
         [Windows.Forms.MessageBox]::Show($_.Exception.Message, $script:AppName, 'OK', 'Warning') | Out-Null
     }
-}
-
-function Show-DocumentPicker {
-    param([string]$Action)
-    $profile = & $script:GetSelectedProfile
-    if (-not $profile) { return }
-    $picker = New-Object Windows.Forms.OpenFileDialog
-    try {
-        $picker.Title = 'Selecione o documento na unidade ' + $profile.drive + ':'
-        $picker.InitialDirectory = $profile.drive + ':\'
-        $picker.Filter = 'Documentos Office|*.docx;*.docm;*.doc;*.xlsx;*.xlsm;*.xlsb;*.xls;*.pptx;*.pptm;*.ppt;*.ppsx;*.ppsm'
-        if ($picker.ShowDialog($script:MainForm) -eq 'OK') { Show-DocumentAction $Action $picker.FileName }
-    } finally { $picker.Dispose() }
-}
-
-function Show-DocumentReservations {
-    $dialog = New-Object Windows.Forms.Form
-    $dialog.Text = 'Reservas / concluir edição'
-    $dialog.Size = New-Object Drawing.Size(760, 350)
-    $dialog.FormBorderStyle = 'FixedDialog'
-    $dialog.MaximizeBox = $false
-    $dialog.AutoScaleMode = 'Dpi'
-    $dialog.StartPosition = 'CenterParent'
-    $dialog.Font = New-Object Drawing.Font('Segoe UI', 9)
-    $list = New-Object Windows.Forms.ListBox
-    $list.Location = New-Object Drawing.Point(16, 16)
-    $list.Size = New-Object Drawing.Size(710, 175)
-    $list.Anchor = 'Top,Bottom,Left,Right'
-    $list.DisplayMember = 'Display'
-    foreach ($entry in @(Read-DocumentReservations)) {
-        [void]$list.Items.Add([pscustomobject]@{ Display = ($entry.name + ' — ' + $entry.state); Entry = $entry })
-    }
-    $dialog.Controls.Add($list)
-    $hint = New-Object Windows.Forms.Label
-    $hint.Text = 'Reservas persistem após fechar o aplicativo. Estados Pending exigem conferência no SharePoint. Use a mesma conta no Office e no aplicativo.'
-    $hint.Location = New-Object Drawing.Point(16, 200)
-    $hint.Size = New-Object Drawing.Size(710, 42)
-    $dialog.Controls.Add($hint)
-    $open = New-Object Windows.Forms.Button
-    $open.Text = 'Abrir no SharePoint'
-    $open.Location = New-Object Drawing.Point(16, 255)
-    $open.Size = New-Object Drawing.Size(160, 32)
-    $finish = New-Object Windows.Forms.Button
-    $finish.Text = 'Salvei e fechei: concluir'
-    $finish.Location = New-Object Drawing.Point(185, 255)
-    $finish.Size = New-Object Drawing.Size(200, 32)
-    $reconcile = New-Object Windows.Forms.Button
-    $reconcile.Text = 'Já concluí no site: conferir'
-    $reconcile.Location = New-Object Drawing.Point(397, 255)
-    $reconcile.Size = New-Object Drawing.Size(225, 32)
-    $dialog.Controls.AddRange(@($open, $finish, $reconcile))
-    $open.Add_Click({
-        if (-not $list.SelectedItem) { return }
-        $entry = $list.SelectedItem.Entry
-        $profile = @($script:Profiles | Where-Object { $_.id -eq $entry.profileId })[0]
-        if ($profile) {
-            try {
-                $token = Get-ProfileAccessToken $profile
-                $item = Invoke-GraphGet (Get-DocumentMetadataUri (Get-DocumentItemUri $profile $entry.itemId)) $token $null
-                Open-DocumentUri (Get-TrustedDocumentUrl $profile $item)
-            } catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message, $script:AppName) | Out-Null }
-        }
-    })
-    $finish.Add_Click({
-        if (-not $list.SelectedItem) { return }
-        $entry = $list.SelectedItem.Entry
-        $profile = @($script:Profiles | Where-Object { $_.id -eq $entry.profileId })[0]
-        if ($profile) { Show-DocumentAction 'Finish' ($profile.drive + ':\' + $entry.relativePath) $entry.itemId; $dialog.Close() }
-    })
-    $reconcile.Add_Click({
-        if (-not $list.SelectedItem) { return }
-        $entry = $list.SelectedItem.Entry
-        $profile = @($script:Profiles | Where-Object { $_.id -eq $entry.profileId })[0]
-        if ($profile) { Show-DocumentAction 'Reconcile' ($profile.drive + ':\' + $entry.relativePath) $entry.itemId; $dialog.Close() }
-    })
-    try { [void]$dialog.ShowDialog($script:MainForm) } finally { $dialog.Dispose() }
 }
 
 function Get-DriveInUse {
@@ -2736,8 +2519,8 @@ function Build-MainForm {
     $form = New-Object Windows.Forms.Form
     $script:MainForm = $form
     $form.Text = $script:AppName
-    $form.Size = New-Object Drawing.Size(980, 730)
-    $form.MinimumSize = New-Object Drawing.Size(980, 650)
+    $form.Size = New-Object Drawing.Size(980, 640)
+    $form.MinimumSize = New-Object Drawing.Size(980, 560)
     $form.StartPosition = 'CenterScreen'
     $form.ShowIcon = $false
     $form.BackColor = $script:Colors.Canvas
@@ -2929,41 +2712,6 @@ function Build-MainForm {
     $script:MountButton.Anchor = 'Bottom,Right'
     foreach ($button in @($script:MountButton, $script:UnmountButton, $script:OpenButton)) { $form.Controls.Add($button) }
 
-    $script:ExclusiveButton = New-MainButton 'Reservar e abrir' 24 550 170 $false
-    $script:CoauthorButton = New-MainButton 'Abrir para coautoria' 204 550 190 $false
-    $script:WebButton = New-MainButton 'Abrir no SharePoint' 404 550 185 $false
-    $script:ReservationsButton = New-MainButton 'Reservas / concluir' 599 550 185 $false
-    foreach ($button in @($script:ExclusiveButton, $script:CoauthorButton, $script:WebButton, $script:ReservationsButton)) { $form.Controls.Add($button) }
-    $documentHint = New-Object Windows.Forms.Label
-    $documentHint.Text = 'A unidade continua gravável. A reserva vale para o arquivo escolhido; a edição direta pela unidade não passa por este controle. Use a mesma conta no Office e evite abrir outra cópia local durante a edição online.'
-    $documentHint.Location = New-Object Drawing.Point(24, 594)
-    $documentHint.Size = New-Object Drawing.Size(919, 44)
-    $documentHint.Anchor = 'Bottom,Left,Right'
-    $documentHint.ForeColor = $script:Colors.Warning
-    $form.Controls.Add($documentHint)
-
-    $script:ExclusiveButton.Add_Click({
-        if (-not (Begin-UiAction)) { return }
-        try { Show-DocumentPicker 'Exclusive' } finally { End-UiAction }
-    })
-    $script:CoauthorButton.Add_Click({
-        if (-not (Begin-UiAction)) { return }
-        try { Show-DocumentPicker 'Coauthor' } finally { End-UiAction }
-    })
-    $script:WebButton.Add_Click({
-        if (-not (Begin-UiAction)) { return }
-        try {
-            $profile = & $script:GetSelectedProfile
-            if ($profile) { Show-DocumentAction 'SharePoint' ($profile.drive + ':\') }
-        } finally { End-UiAction }
-    })
-    $script:ReservationsButton.Add_Click({
-        if (-not (Begin-UiAction)) { return }
-        try { Show-DocumentReservations }
-        catch { [Windows.Forms.MessageBox]::Show($_.Exception.Message, $script:AppName) | Out-Null }
-        finally { End-UiAction }
-    })
-
     $statusPanel = New-Object Windows.Forms.Panel
     $statusPanel.Dock = 'Bottom'
     $statusPanel.Height = 52
@@ -3026,14 +2774,6 @@ function Build-MainForm {
         $script:MountButton.Visible = $hasSelection -and $state -eq 'Stopped'
         $script:UnmountButton.Visible = $hasSelection -and $state -eq 'Mounted'
         $script:OpenButton.Visible = $hasSelection -and $state -eq 'Mounted'
-        $script:ExclusiveButton.Enabled = $hasSelection -and $state -eq 'Mounted' -and -not $script:IsBusy
-        $script:CoauthorButton.Enabled = $script:ExclusiveButton.Enabled
-        $script:WebButton.Enabled = $hasSelection -and -not $script:IsBusy
-        $script:ReservationsButton.Enabled = -not $script:IsBusy
-        try {
-            $count = @(Read-DocumentReservations).Count
-            $script:ReservationsButton.Text = 'Reservas / concluir (' + $count + ')'
-        } catch { $script:ReservationsButton.Text = 'Reservas: verificar' }
     }
 
     $script:RefreshGrid = {
@@ -3152,10 +2892,6 @@ function Build-MainForm {
         try {
             $profile = & $script:GetSelectedProfile
             if (-not $profile) { return }
-            if (@(Read-DocumentReservations | Where-Object { $_.profileId -eq $profile.id }).Count -gt 0) {
-                [Windows.Forms.MessageBox]::Show('Conclua ou confira as reservas desta biblioteca antes de remover a conexão.', $script:AppName, 'OK', 'Warning') | Out-Null
-                return
-            }
             $description = if ($profile.siteName -and $profile.libraryName) { $profile.siteName + ' · ' + $profile.libraryName } else { $profile.label }
             $message = 'Remover a unidade ' + $profile.drive + ': deste computador?' + [Environment]::NewLine + [Environment]::NewLine + $description + [Environment]::NewLine + [Environment]::NewLine + 'Os arquivos no SharePoint serão preservados.'
             $answer = [Windows.Forms.MessageBox]::Show($message, $script:AppName, 'YesNo', 'Warning')

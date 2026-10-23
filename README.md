@@ -18,8 +18,8 @@ sincronizar a biblioteca inteira.
 - Duplo clique em DOCX, XLSX e PPTX de uma unidade abre o documento no Office
   diretamente do SharePoint (coautoria e salvamento automático). Se não for
   possível, abre a cópia da unidade.
-- Menu de contexto no Explorador: reservar (checkout) e abrir, abrir para
-  coautoria, abrir no SharePoint e concluir edição exclusiva (check-in).
+- "Abrir no SharePoint" no botão direito do Explorador: abre o arquivo ou a
+  pasta no navegador.
 - Instalador MSI por máquina e instalador completo que inclui o WinFsp.
 
 ## Requisitos

@@ -51,17 +51,18 @@ há gravações locais pendentes.
 - acesso sob demanda sem sincronizar toda a biblioteca;
 - cache VFS compatível com operações comuns do Office;
 - proteção contra desmontagem e remoção com upload pendente;
-- abertura pelo Office para coautoria e checkout/check-in explícito pelo Graph;
+- duplo clique que abre documentos Office pelo SharePoint (coautoria), com
+  checkout/check-in pelo próprio Office;
+- sincronização opcional de qualquer biblioteca pelo cliente OneDrive;
 - atualização automática de mudanças externas;
 - instalador com rclone e WinFsp integrados e execução sem VBS/console;
 - configuração criptografada, ACL privada e logs com remoção de segredos.
 
 ## Lacunas para competir em ambiente corporativo
 
-1. **Interceptação real de abertura e fechamento.** Zee Drive e Mountain Duck
-   integram o lock ao ciclo de vida do arquivo. O produto atual oferece comandos
-   explícitos de reserva/coautoria; um duplo clique comum continua sendo uma
-   gravação VFS sem checkout automático.
+1. **Arquivos que não são Office.** O duplo clique em DOCX/XLSX/PPTX já abre
+   pelo SharePoint (e o Office cuida de checkout e coautoria); outros tipos
+   continuam sendo gravações VFS comuns, sem bloqueio no servidor.
 2. **Estado visual por arquivo.** Não há overlay no Explorer para indicar
    download, upload pendente, erro, cache local ou proprietário do bloqueio. O
    rclone ainda não expõe um estado VFS completo por arquivo pela API RC.

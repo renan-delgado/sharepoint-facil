@@ -11,7 +11,7 @@ INSTALAÇÃO
 
 O instalador inclui a versão validada do rclone e instala o componente WinFsp.
 Não é necessário localizar ou configurar esses componentes manualmente.
-Na versão 1.1.3, os atalhos abrem somente a interface do SharePoint Fácil.
+Os atalhos abrem somente a interface do SharePoint Fácil.
 O PowerShell e o rclone executam em segundo plano, sem janela de terminal.
 Para uso normal, abra pelo atalho ou por SharePointFacil.exe; executar o PS1
 manualmente em um terminal continua sendo uma opção de diagnóstico.
@@ -24,6 +24,9 @@ PRIMEIRA CONEXÃO
 4. Escolha a letra e o nome que aparecerão no Explorador de Arquivos.
 5. Mantenha marcada a reconexão no logon, se desejar.
 6. Clique em “Conectar”.
+
+Na mesma janela, “Sincronizar com o OneDrive” entrega a biblioteca escolhida ao
+aplicativo OneDrive, como o botão Sincronizar do SharePoint.
 
 Nas próximas conexões, a autorização válida já salva será reutilizada. O navegador
 só será aberto quando a Microsoft exigir uma nova autorização.
@@ -46,38 +49,17 @@ ele mantém a unidade conectada para proteger as alterações.
 
 ARQUIVOS DO WORD, EXCEL E POWERPOINT
 
-Na versão 1.1, a unidade permanece gravável pelo rclone. A reserva é por arquivo
-e por comando explícito; não existe bloqueio automático do duplo clique.
+Dê dois cliques no documento dentro da unidade: ele abre no Word, Excel ou
+PowerPoint diretamente do SharePoint, com coautoria e salvamento automático.
+Se isso não for possível (sem internet, envio ainda pendente ou formato antigo),
+o arquivo abre pela unidade, como um arquivo comum.
 
-- “Reservar e abrir” confirma um check-out no SharePoint e abre a URL do arquivo
-  no Word, Excel ou PowerPoint. Outros usuários ficam sujeitos ao bloqueio do
-  SharePoint. Use a mesma conta Microsoft no aplicativo e no Office.
-- Depois de salvar, aguardar o Office confirmar o envio e fechar o documento,
-  use “Reservas / concluir” ou “Concluir edição exclusiva” para fazer check-in.
-  O envio desta edição é gerenciado pelo Office, não pela fila do rclone.
-- “Abrir para coautoria” abre DOCX, XLSX ou PPTX diretamente no Office pela URL
-  do SharePoint, sem reservar. Coautoria e AutoSave dependem da versão do Office,
-  do documento, das permissões e das configurações da biblioteca.
-- “Abrir no SharePoint” oferece acesso ao histórico, permissões e demais recursos.
+Quando a biblioteca exigir check-out, o próprio Office oferece “Fazer
+check-out” e “Fazer check-in” em Arquivo › Informações.
 
-Esses comandos também estão no submenu “SharePoint Fácil” do botão direito no
-Explorador após instalar a versão 1.1. No Windows 11, use “Mostrar mais opções”.
-O submenu pode aparecer fora das unidades mapeadas; esses caminhos são recusados.
-
-A reserva tem proteção limitada: criar, copiar, substituir, renomear, apagar ou
-editar diretamente pela unidade não passa por este controle. Não abra outra cópia
-local do mesmo documento durante a edição online. Contas compartilhadas e ações
-de administradores também impedem uma garantia de exclusividade por computador.
-Uploads pendentes impedem iniciar a edição online, mas novas gravações pela unidade
-podem começar depois dessa verificação. O aplicativo não intercepta essas gravações.
-
-Reservas sobrevivem ao fechamento do aplicativo e ao reinício do computador.
-Se houver falha de comunicação ou um estado CheckoutPending/CheckinPending,
-abra o documento no SharePoint e confira/conclua a reserva por lá. Depois use
-“Já concluí no site: conferir”. O aplicativo só remove o registro quando o
-SharePoint confirma que o documento não está reservado. Ele não descarta alterações
-nem repete automaticamente um check-out/check-in de resultado incerto.
-Não remova a conexão nem desinstale antes de resolver suas reservas.
+Para abrir um arquivo ou pasta no navegador (compartilhar, ver versões ou
+permissões), clique com o botão direito e escolha “Abrir no SharePoint”. No
+Windows 11, ele fica em “Mostrar mais opções”.
 
 O modo de gravação compatível com os arquivos temporários, renomeações e
 substituições usados pelo Office já vem configurado. O upload em sessão do

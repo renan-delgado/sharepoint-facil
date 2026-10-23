@@ -9,7 +9,7 @@
 | Acesso ao SharePoint | rclone `onedrive` (`drive_type=documentLibrary`) via `rclone rcd` | 1.75.1 |
 | Sistema de arquivos | WinFsp (`cmount`, `network_mode`) | 2.2.26215 (v2.2B4) |
 | Instaladores | WiX Toolset (MSI por máquina + bundle `Setup.exe`) | 4.0.6 |
-| API | Microsoft Graph v1.0 (metadados, checkout/check-in) | — |
+| API | Microsoft Graph v1.0 (sites, bibliotecas, metadados de itens) | — |
 
 Não há banco de dados, servidor próprio nem interface web.
 
@@ -34,7 +34,7 @@ Seções de `RcloneDriveManager.ps1`, na ordem do arquivo:
 | Segredos e config | `Protect-LocalSecret`, `Get-OrCreateConfigPassword`, `Initialize-AppConfigEncryption` | Senha do `rclone.conf` protegida por DPAPI; ACL privada |
 | Controlador rclone | `Start-Controller`, `Invoke-ControllerRequest` | `rclone rcd` em 127.0.0.1 com usuário/senha aleatórios |
 | Configurações | `Load-Settings`, `Save-Settings`, `ConvertTo-SafeProfile` | `settings.json` validado, com cópia de segurança |
-| Graph e documentos | `Get-DocumentTarget`, `Invoke-DocumentAction`, `Get-OfficeDocumentUri` | Resolver caminho → item; coautoria, reserva, abertura pelo SharePoint |
+| Graph e documentos | `Get-DocumentTarget`, `Invoke-DocumentAction`, `Get-OfficeDocumentUri` | Resolver caminho → item; duplo clique pelo SharePoint e "Abrir no SharePoint" |
 | Montagem | `New-MountRequest`, `Start-Mount`, `Stop-Mount`, `Wait-PendingUploads` | Opções do VFS; não desmontar com envio pendente |
 | Interface | `Show-NewSharePointMappingDialog`, `Build-MainForm` | Janelas WinForms |
 | Entrada | bloco final do arquivo | Mutex por usuário, `-AutoMount`, `-SelfTest`, `-ShellWatcher`, `-DocumentAction` |
@@ -59,12 +59,15 @@ Seções de `RcloneDriveManager.ps1`, na ordem do arquivo:
   oficialmente; validado com o cliente OneDrive em 23/10/2026). Depois disso
   a sincronização é do OneDrive; o app não a acompanha.
 - **Identidade da conta:** o app OAuth do rclone não concede `User.Read`,
-  então `/me` responde 403. O login (`upn`) e o ID do usuário (`oid`) vêm das
-  claims do token (`Get-TokenAccountName`, `Get-TokenUserId`).
+  então `/me` responde 403. O login (`upn`) vem das claims do token
+  (`Get-TokenAccountName`).
 - **App → Office:** URIs `ms-word:ofe|u|<webDavUrl>`; a URL é validada contra
   o host da biblioteca (`Get-TrustedDocumentUrl`).
 - Dados locais: `%LOCALAPPDATA%\SharePointFacil` (configurações, cache VFS,
-  logs, `reservations.json`).
+  logs).
+- **Explorador → app:** além do duplo clique, um único verbo "Abrir no
+  SharePoint" (sem submenu) em arquivos e pastas. Reservas próprias
+  (checkout/check-in pelo app) foram removidas na 1.1.6; o Office faz isso.
 
 ## Decisões
 

@@ -22,7 +22,7 @@ layout responsivo) não se aplicam.
   no rodapé; erros usam mensagens em linguagem simples (`Show-FriendlyError`).
 - Botões principais têm `AccessibleName`; dicas (`ToolTip`) explicam ações
   destrutivas.
-- Integração com o Explorador: submenu "SharePoint Fácil" e verbo padrão
+- Integração com o Explorador: item "Abrir no SharePoint" no botão direito e verbo padrão
   "Abrir (SharePoint Fácil)" nos tipos DOCX/XLSX/PPTX.
 
 ## Revisão

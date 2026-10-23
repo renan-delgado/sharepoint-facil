@@ -114,7 +114,7 @@ permitidos no pacote.
 ## Gerar somente o MSI
 
 ```powershell
-.\installer\scripts\Build-Installer.ps1 -ProductVersion 1.1.5
+.\installer\scripts\Build-Installer.ps1 -ProductVersion 1.1.6
 ```
 
 O script prepara o pacote, valida o SHA-256 e a versão do rclone, restaura o
@@ -127,7 +127,7 @@ Com o WinFsp fixado presente em `third-party\winfsp\winfsp.msi`, execute:
 
 ```powershell
 .\installer\scripts\Build-Installer.ps1 `
-  -ProductVersion 1.1.5 `
+  -ProductVersion 1.1.6 `
   -IncludeBundle `
   -WinFspMsiPath .\installer\third-party\winfsp\winfsp.msi
 ```
@@ -217,3 +217,23 @@ Os remotes OneDrive usam `upload_cutoff=off`, conforme o padrão recomendado pel
 rclone para OneDrive Business/SharePoint. As opções globais `IgnoreSize` e
 `IgnoreChecksum`, próprias de comparação em copy/sync, foram removidas da
 montagem; a compatibilidade do Office permanece baseada em cache VFS `full`.
+
+# Versão 1.1.4 — duplo clique pelo SharePoint e envio de arquivos Office
+
+O duplo clique em DOCX/XLSX/PPTX de uma unidade abre o documento no Office pela
+URL do SharePoint, com fallback para a cópia da unidade. `IgnoreSize` e
+`IgnoreChecksum` voltaram ao mount: o SharePoint regrava arquivos Office no
+envio, e sem essas opções todo salvamento falhava como `corrupted on transfer`.
+
+# Versão 1.1.5 — correções de segurança
+
+O app só envia a credencial do controlador local ao rclone que ele iniciou
+(PID, executável, horário de início e dono da porta). A tradução de links
+simbólicos (`Links`) foi desligada no mount.
+
+# Versão 1.1.6 — sincronizar pelo OneDrive e interface simplificada
+
+"Sincronizar com o OneDrive" na janela de bibliotecas abre o mesmo link
+`odopen://sync` do botão do SharePoint. Os comandos próprios de reserva,
+coautoria e check-in saíram da janela e do Explorador; o menu de contexto tem
+só "Abrir no SharePoint". Chamadas a `/me` no Graph foram eliminadas.

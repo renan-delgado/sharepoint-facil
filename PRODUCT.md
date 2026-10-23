@@ -31,8 +31,8 @@ sob demanda: pastas são listadas ao abrir e arquivos baixados ao usar.
    aparecem em até cerca de 30 s.
 4. **Abrir documento Office:** o duplo clique em DOCX/XLSX/PPTX abre pelo
    SharePoint (coautoria); se não for possível, abre a cópia da unidade.
-5. **Edição exclusiva:** reservar (checkout), editar no Office e concluir
-   (check-in) pelo menu de contexto ou pela janela.
+   Checkout e check-in, quando exigidos, ficam com o próprio Office.
+5. **Abrir no navegador:** "Abrir no SharePoint" no botão direito.
 6. **Instalar e atualizar:** um instalador que inclui o WinFsp e atualiza a
    versão anterior sem perder as unidades.
 

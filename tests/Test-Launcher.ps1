@@ -29,9 +29,8 @@ Write-Output 'Probe output must not create a terminal.'
         [pscustomobject]@{ Args = [string[]]@('-AutoMount'); Action = ''; Path = ''; AutoMount = $true; ShellWatcher = $false },
         [pscustomobject]@{ Args = [string[]]@('-ShellWatcher'); Action = ''; Path = ''; AutoMount = $false; ShellWatcher = $true }
     )
-    foreach ($action in @('Exclusive', 'Coauthor', 'SharePoint', 'Finish')) {
-        $path = if ($action -eq 'SharePoint') { 'Z:\' } else { 'Z:\Ação & teste\100% $x; $(literal).xlsx' }
-        $cases += [pscustomobject]@{ Args = [string[]]@('-DocumentAction', $action, '-DocumentPath', $path); Action = $action; Path = $path; AutoMount = $false; ShellWatcher = $false }
+    foreach ($path in @('Z:\', 'Z:\Ação & teste\100% $x; $(literal).xlsx')) {
+        $cases += [pscustomobject]@{ Args = [string[]]@('-DocumentAction', 'SharePoint', '-DocumentPath', $path); Action = 'SharePoint'; Path = $path; AutoMount = $false; ShellWatcher = $false }
     }
     foreach ($case in $cases) {
         $info = $create.Invoke($null, [object[]]@([string]$testRoot, [string[]]$case.Args))
@@ -68,6 +67,11 @@ Write-Output 'Probe output must not create a terminal.'
     $rejected = $false
     try { [void]$create.Invoke($null, [object[]]@([string]$testRoot, [string[]]@('-Command', 'anything'))) } catch { $rejected = $true }
     if (-not $rejected) { throw 'Launcher accepted arbitrary commands.' }
+    foreach ($removed in @('Exclusive', 'Coauthor', 'Finish', 'Auto')) {
+        $rejected = $false
+        try { [void]$create.Invoke($null, [object[]]@([string]$testRoot, [string[]]@('-DocumentAction', $removed, '-DocumentPath', 'Z:\a.xlsx'))) } catch { $rejected = $true }
+        if (-not $rejected) { throw ('Launcher accepted a removed document action: ' + $removed) }
+    }
 
     # Double-click routing: only files on a mapped drive go to the SharePoint URL.
     [string]$settings = Join-Path $testRoot 'settings.json'
@@ -84,7 +88,7 @@ Write-Output 'Probe output must not create a terminal.'
     $rejected = $false
     try { [void]$createWithSettings.Invoke($null, [object[]]@([string]$testRoot, [string[]]@('-OfficeOpen', 'Z:\a"b.xlsx'), $settings)) } catch { $rejected = $true }
     if (-not $rejected) { throw 'Quoted document path accepted.' }
-    Write-Output 'LAUNCHER_TESTS_OK: GUI x64; 7 real launches without a console; arguments preserved; arbitrary commands rejected; Office double-click routing.'
+    Write-Output 'LAUNCHER_TESTS_OK: GUI x64; 5 real launches without a console; arguments preserved; arbitrary and removed commands rejected; Office double-click routing.'
 } finally {
     $resolved = [IO.Path]::GetFullPath($testRoot)
     $tempPrefix = [IO.Path]::GetFullPath($testParent).TrimEnd('\') + '\'

@@ -154,8 +154,9 @@ $documentMenu = $product.SelectSingleNode('//wix:Component[@Id="DocumentContextM
 Assert-Condition ($null -ne $documentMenu) 'O menu de documentos deve pertencer a um componente próprio.'
 Assert-Condition ($null -ne $product.SelectSingleNode('//wix:Feature/wix:ComponentRef[@Id="DocumentContextMenu"]', $wixNs)) 'O menu de documentos deve ser instalado pelo recurso principal.'
 $documentCommands = @($documentMenu.SelectNodes('.//wix:RegistryKey[@Key="command"]/wix:RegistryValue', $wixNs))
-Assert-Condition ($documentCommands.Count -eq 4) 'O menu deve conter quatro comandos de documento.'
-foreach ($action in @('Exclusive', 'Coauthor', 'SharePoint', 'Finish')) {
+Assert-Condition ($documentCommands.Count -eq 1) 'O menu deve conter somente "Abrir no SharePoint".'
+Assert-Condition ($null -eq $documentMenu.SelectSingleNode('.//wix:RegistryValue[@Name="SubCommands"]', $wixNs)) 'O menu não deve voltar a ser um submenu.'
+foreach ($action in @('SharePoint')) {
     $command = @($documentCommands | Where-Object { $_.Value -match ('-DocumentAction ' + $action + ' ') })
     Assert-Condition ($command.Count -eq 1) ('Comando ausente ou duplicado: ' + $action)
     Assert-Condition ($command[0].Value -match '^"\[INSTALLFOLDER\]SharePointFacil.exe" ' -and $command[0].Value -match '-DocumentPath "%1"$') 'O menu deve chamar o inicializador grafico com o documento entre aspas.'

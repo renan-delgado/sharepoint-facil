@@ -32,21 +32,16 @@ function Assert-Throws([scriptblock]$Work, [string]$Message) {
 }
 function Reset-Scenario {
     $script:Profiles = @([pscustomobject]@{ id = 'profile1'; remote = 'remote1'; drive = 'Z'; driveId = 'drive1'; webUrl = 'https://tenant.sharepoint.com/sites/Docs/Shared%20Documents'; label = 'Teste'; siteName = 'Teste'; libraryName = 'Docs'; autoMount = $false })
-    $script:Item = [pscustomobject]@{ id = 'item1'; name = 'Planilha.xlsx'; webUrl = 'https://tenant.sharepoint.com/sites/Docs/Shared%20Documents/Planilha.xlsx'; file = @{ mimeType = 'application/octet-stream' }; publication = [pscustomobject]@{ level = 'published'; checkedOutBy = $null } }
-    $script:Posts = @()
+    $script:Item = [pscustomobject]@{ id = 'item1'; name = 'Planilha.xlsx'; webUrl = 'https://tenant.sharepoint.com/sites/Docs/Shared%20Documents/Planilha.xlsx'; file = @{ mimeType = 'application/octet-stream' } }
     $script:Opened = @()
     $script:SeenGetUris = @()
-    $script:FailPost = ''
     $script:FailOpen = $false
-    $script:WrongOwner = $false
     $script:Dirty = $false
     $script:Uncertain = $false
     $script:Stats = [pscustomobject]@{ diskCache = [pscustomobject]@{ uploadsQueued = 0; uploadsInProgress = 0; erroredFiles = 0 } }
     $script:ControllerCalls = @()
-    Save-DocumentReservations @()
 }
 function Get-ProfileAccessToken { param($Profile); return 'test-only' }
-function Get-TokenUserId { return 'user1' }
 function ConvertTo-TestJwt([hashtable]$Claims) {
     $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($Claims | ConvertTo-Json -Compress))).TrimEnd('=').Replace('+', '-').Replace('/', '_')
     return 'eyJhbGciOiJub25lIn0.' + $payload + '.sig'
@@ -56,23 +51,6 @@ function Invoke-GraphGet {
     $script:SeenGetUris += $Uri
     Assert-Test ($Uri -notlike '*/me?*' -and $Uri -notlike '*/me') 'Graph /me needs User.Read, which the rclone OAuth app does not grant'
     return $script:Item
-}
-function Invoke-GraphDocumentPost {
-    param($Uri, $AccessToken, $Body)
-    # Assert durable intent is present before any remote mutation.
-    $journal = @(Read-DocumentReservations)
-    Assert-Test ($journal.Count -eq 1) 'Mutation without durable journal'
-    $script:Posts += $Uri
-    if ($Uri.EndsWith('/checkout')) {
-        Assert-Test ($journal[0].state -eq 'CheckoutPending') 'Checkout intent was not recorded'
-        $script:Item.publication.level = 'checkout'
-        $script:Item.publication.checkedOutBy = @{ user = @{ id = $(if ($script:WrongOwner) { 'other' } else { 'user1' }) } }
-    } else {
-        Assert-Test ($journal[0].state -eq 'CheckinPending') 'Checkin intent was not recorded'
-        $script:Item.publication.level = 'published'
-        $script:Item.publication.checkedOutBy = $null
-    }
-    if ($script:FailPost -and $Uri.EndsWith($script:FailPost)) { throw 'Simulated lost response after remote commit' }
 }
 function Open-DocumentUri {
     param($Uri)
@@ -146,86 +124,47 @@ try {
     $target = Get-DocumentTarget 'Z:\Contratos\Ação # 100%.xlsx'
     Assert-Test ($target.Uri -eq 'https://graph.microsoft.com/v1.0/drives/drive1/root:/Contratos/A%C3%A7%C3%A3o%20%23%20100%25.xlsx') 'Incorrect segment encoding'
     $metadataUri = Get-DocumentMetadataUri $target.Uri
-    Assert-Test ($metadataUri -eq ($target.Uri + '?$select=id,name,webUrl,webDavUrl,file,remoteItem,publication')) 'Checkout metadata did not request publication explicitly'
+    Assert-Test ($metadataUri -eq ($target.Uri + '?$select=id,name,webUrl,webDavUrl,file,remoteItem')) 'Unexpected document metadata selection'
     foreach ($path in @('C:\arquivo.xlsx', 'Z:arquivo.xlsx', 'Z:\..\arquivo.xlsx', '\\server\share\arquivo.xlsx', 'Z:\arquivo.xlsx:stream', 'Z:\pasta.\arquivo.xlsx', 'Z:\a|b.xlsx')) {
         Assert-Throws { Get-DocumentTarget $path } ('Unsafe path accepted: ' + $path)
     }
-    $null = Invoke-DocumentAction 'Coauthor' 'Z:\Planilha.xlsx'
-    Assert-Test ($script:Posts.Count -eq 0 -and $script:Opened[0] -like 'ms-excel:ofe|u|https://tenant.sharepoint.com/*') 'Coauthor must only launch the remote Office URL'
-    Assert-Test (@($script:SeenGetUris | Where-Object { $_ -like '*?$select=*publication*' }).Count -eq 1) 'Document lookup omitted the publication facet'
-    Reset-Scenario
-    $null = Invoke-DocumentAction 'Exclusive' 'Z:\Planilha.xlsx'
-    Assert-Test ($script:Posts.Count -eq 1 -and $script:Opened.Count -eq 1 -and @(Read-DocumentReservations)[0].state -eq 'Reserved') 'Exclusive flow failed'
-    Assert-Throws { Invoke-DocumentAction 'Exclusive' 'Z:\Planilha.xlsx' } 'Existing reservation was adopted'
-    Assert-Throws { Invoke-DocumentAction 'Coauthor' 'Z:\Planilha.xlsx' } 'Coauthor allowed during checkout'
-    Assert-Throws { Invoke-DocumentAction 'Finish' 'Z:\Planilha.xlsx' } 'Checkin without save confirmation'
-    Assert-Test ($script:Posts.Count -eq 1) 'Blocked actions mutated SharePoint'
-    $null = Invoke-DocumentAction 'Finish' 'Z:\old-name.xlsx' -ReservationItemId 'item1' -ConfirmedSavedAndClosed
-    Assert-Test ($script:Posts.Count -eq 2 -and @(Read-DocumentReservations).Count -eq 0 -and $script:SeenGetUris -contains 'https://graph.microsoft.com/v1.0/drives/drive1/items/item1?$select=id,name,webUrl,webDavUrl,file,remoteItem,publication') 'Checkin must resolve stable item id with publication metadata and clear the journal'
+    foreach ($removed in @('Exclusive', 'Coauthor', 'Finish', 'Reconcile')) {
+        Assert-Throws { Invoke-DocumentAction $removed 'Z:\Planilha.xlsx' } ('Removed document action still accepted: ' + $removed)
+    }
 
+    # "Abrir no SharePoint": the browser page of the item, never an Office URI.
+    $null = Invoke-DocumentAction 'SharePoint' 'Z:\Planilha.xlsx'
+    Assert-Test ($script:Opened.Count -eq 1 -and $script:Opened[0] -eq 'https://tenant.sharepoint.com/sites/Docs/Shared%20Documents/Planilha.xlsx') 'Open in SharePoint must launch the trusted web URL'
+
+    # Double-click must not hide local edits that are newer than the server copy.
     foreach ($flag in @('Dirty', 'Uncertain')) {
         Reset-Scenario
         Set-Variable -Name $flag -Scope Script -Value $true
-        Assert-Throws { Invoke-DocumentAction 'Exclusive' 'Z:\Planilha.xlsx' } 'Unsafe cache was accepted'
-        Assert-Test ($script:Posts.Count -eq 0 -and $script:Opened.Count -eq 0) 'Unsafe cache caused an action'
+        Assert-Throws { Invoke-DocumentAction 'Auto' 'Z:\Planilha.xlsx' } 'Unsafe cache was accepted'
+        Assert-Test ($script:Opened.Count -eq 0) 'Unsafe cache caused an action'
     }
     foreach ($field in @('uploadsQueued', 'uploadsInProgress', 'erroredFiles')) {
         Reset-Scenario
         $script:Stats.diskCache.$field = 1
-        Assert-Throws { Invoke-DocumentAction 'Coauthor' 'Z:\Planilha.xlsx' } 'Pending upload was accepted'
+        Assert-Throws { Invoke-DocumentAction 'Auto' 'Z:\Planilha.xlsx' } 'Pending upload was accepted'
     }
     Reset-Scenario
     $script:Stats = [pscustomobject]@{}
-    Assert-Throws { Invoke-DocumentAction 'Exclusive' 'Z:\Planilha.xlsx' } 'Missing VFS data was treated as clean'
-
-    foreach ($owner in @('user1', 'other')) {
-        Reset-Scenario
-        $script:Item.publication.level = 'checkout'
-        $script:Item.publication.checkedOutBy = @{ user = @{ id = $owner } }
-        Assert-Throws { Invoke-DocumentAction 'Exclusive' 'Z:\Planilha.xlsx' } 'Pre-existing checkout adopted'
-        Assert-Throws { Invoke-DocumentAction 'Finish' 'Z:\Planilha.xlsx' -ConfirmedSavedAndClosed } 'Foreign checkout released'
-        Assert-Test ($script:Posts.Count -eq 0) 'Foreign checkout was mutated'
-    }
-    Reset-Scenario
-    $script:WrongOwner = $true
-    Assert-Throws { Invoke-DocumentAction 'Exclusive' 'Z:\Planilha.xlsx' } 'Ownership was not verified after checkout'
-    Assert-Test ($script:Opened.Count -eq 0) 'Office opened without ownership'
-
-    Reset-Scenario
-    $script:FailPost = '/checkout'
-    Assert-Throws { Invoke-DocumentAction 'Exclusive' 'Z:\Planilha.xlsx' } 'Lost checkout response ignored'
-    Assert-Test ($script:Posts.Count -eq 1 -and $script:Opened.Count -eq 0 -and @(Read-DocumentReservations)[0].state -eq 'CheckoutPending') 'Uncertain checkout must be preserved without retry'
-    Assert-Throws { Invoke-DocumentAction 'Reconcile' 'Z:\Planilha.xlsx' } 'Active checkout cleared during reconciliation'
-    Reset-Scenario
-    $null = Invoke-DocumentAction 'Exclusive' 'Z:\Planilha.xlsx'
-    $script:FailPost = '/checkin'
-    Assert-Throws { Invoke-DocumentAction 'Finish' 'Z:\Planilha.xlsx' -ConfirmedSavedAndClosed } 'Lost checkin response ignored'
-    Assert-Test (@(Read-DocumentReservations)[0].state -eq 'CheckinPending') 'Uncertain checkin not retained'
-    Assert-Throws { Invoke-DocumentAction 'Finish' 'Z:\Planilha.xlsx' -ConfirmedSavedAndClosed } 'Uncertain checkin retried'
-    $null = Invoke-DocumentAction 'Reconcile' 'Z:\Planilha.xlsx'
-    Assert-Test (@(Read-DocumentReservations).Count -eq 0 -and $script:Posts.Count -eq 2) 'Reconcile must only clear local state'
-
-    Reset-Scenario
-    $script:FailOpen = $true
-    Assert-Throws { Invoke-DocumentAction 'Exclusive' 'Z:\Planilha.xlsx' } 'Missing Office ignored'
-    Assert-Test (@(Read-DocumentReservations)[0].state -eq 'Reserved') 'Launch failure discarded reservation'
+    Assert-Throws { Invoke-DocumentAction 'Auto' 'Z:\Planilha.xlsx' } 'Missing VFS data was treated as clean'
 
     Reset-Scenario
     foreach ($url in @('http://tenant.sharepoint.com/a.xlsx', 'https://other.sharepoint.com/a.xlsx', 'https://tenant.sharepoint.com/a.xlsx|bad', 'https://user@tenant.sharepoint.com/a.xlsx')) {
         $script:Item.webUrl = $url
-        Assert-Throws { Invoke-DocumentAction 'Coauthor' 'Z:\Planilha.xlsx' } 'Untrusted Office URL accepted'
+        Assert-Throws { Invoke-DocumentAction 'Auto' 'Z:\Planilha.xlsx' } 'Untrusted Office URL accepted'
+        Assert-Throws { Invoke-DocumentAction 'SharePoint' 'Z:\Planilha.xlsx' } 'Untrusted web URL accepted'
     }
     Reset-Scenario
-    $script:Item.name = 'legacy.xls'
-    Assert-Throws { Invoke-DocumentAction 'Coauthor' 'Z:\legacy.xls' } 'Unsupported coauthor format accepted'
-    # Account identity comes from the token, never from Graph /me.
-    & {
-        $definition = $ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Get-TokenUserId' }
-        . ([scriptblock]::Create($definition.Extent.Text))
-        $jwt = ConvertTo-TestJwt @{ oid = '9603323d-31d5-4b5f-9eac-ecb93a35c600'; upn = 'ana.silva@tenant.com' }
-        Assert-Test ((Get-TokenUserId $jwt) -eq '9603323d-31d5-4b5f-9eac-ecb93a35c600' -and (Get-TokenAccountName $jwt) -eq 'ana.silva@tenant.com') 'Token identity claims not read'
-        Assert-Test ((Get-TokenUserId (ConvertTo-TestJwt @{ oid = 'not-a-guid' })) -eq '' -and (Get-TokenUserId 'garbage') -eq '') 'Invalid token identity accepted'
-    }
+    $script:Item.name = 'notas.txt'
+    Assert-Throws { Invoke-DocumentAction 'Auto' 'Z:\notas.txt' } 'Non-Office file sent to an Office URI'
+
+    # Account name comes from the token, never from Graph /me.
+    $jwt = ConvertTo-TestJwt @{ upn = 'ana.silva@tenant.com' }
+    Assert-Test ((Get-TokenAccountName $jwt) -eq 'ana.silva@tenant.com' -and (Get-TokenAccountName 'garbage') -eq '') 'Token account claim not read safely'
 
     # OneDrive sync: the same odopen link as SharePoint's Sync button.
     & {
@@ -250,23 +189,17 @@ try {
     Reset-Scenario
     $script:Item.webUrl = 'https://tenant.sharepoint.com/sites/Docs/_layouts/15/Doc.aspx?sourcedoc=%7B1%7D&file=Planilha.xlsx&action=default'
     $script:Item | Add-Member webDavUrl 'https://tenant.sharepoint.com/sites/Docs/Shared%20Documents/Planilha.xlsx'
-    $null = Invoke-DocumentAction 'Coauthor' 'Z:\Planilha.xlsx'
+    $null = Invoke-DocumentAction 'Auto' 'Z:\Planilha.xlsx'
     Assert-Test ($script:Opened[0] -eq 'ms-excel:ofe|u|https://tenant.sharepoint.com/sites/Docs/Shared%20Documents/Planilha.xlsx') 'Office was given the browser viewer link instead of the file address'
     $script:Item.webDavUrl = 'https://other.sharepoint.com/Planilha.xlsx'
-    Assert-Throws { Invoke-DocumentAction 'Coauthor' 'Z:\Planilha.xlsx' } 'Untrusted webDavUrl accepted'
+    Assert-Throws { Invoke-DocumentAction 'Auto' 'Z:\Planilha.xlsx' } 'Untrusted webDavUrl accepted'
 
     # Double-click (Auto): SharePoint URL when safe, otherwise the drive copy.
     function Open-LocalDocument { param($Path); $script:LocalOpened += $Path }
     Reset-Scenario
     $script:LocalOpened = @()
     Show-DocumentAction 'Auto' 'Z:\Planilha.xlsx'
-    Assert-Test ($script:Opened.Count -eq 1 -and $script:Opened[0] -like 'ms-excel:ofe|u|https://tenant.sharepoint.com/*' -and $script:LocalOpened.Count -eq 0 -and $script:Posts.Count -eq 0) 'Auto must open the SharePoint URL without mutations'
-    Reset-Scenario
-    $script:LocalOpened = @()
-    $script:Item.publication.level = 'checkout'
-    $script:Item.publication.checkedOutBy = @{ user = @{ id = 'other' } }
-    Show-DocumentAction 'Auto' 'Z:\Planilha.xlsx'
-    Assert-Test ($script:Opened.Count -eq 1 -and $script:Posts.Count -eq 0) 'Auto must open a checked-out item by URL without touching the checkout'
+    Assert-Test ($script:Opened.Count -eq 1 -and $script:Opened[0] -like 'ms-excel:ofe|u|https://tenant.sharepoint.com/*' -and $script:LocalOpened.Count -eq 0) 'Auto must open the SharePoint URL'
     foreach ($case in @('Dirty', 'Upload', 'Office')) {
         Reset-Scenario
         $script:LocalOpened = @()
@@ -276,11 +209,6 @@ try {
         Show-DocumentAction 'Auto' 'Z:\Planilha.xlsx'
         Assert-Test ($script:Opened.Count -eq 0 -and $script:LocalOpened -contains 'Z:\Planilha.xlsx') ('Auto did not fall back to the drive copy: ' + $case)
     }
-
-    Reset-Scenario
-    Write-AtomicText (Join-Path $script:DataDir 'reservations.json') '{broken'
-    Assert-Throws { Invoke-DocumentAction 'Exclusive' 'Z:\Planilha.xlsx' } 'Corrupt journal was ignored'
-    Assert-Test ($script:Posts.Count -eq 0) 'Mutation after corrupt journal'
 
     if ($VerifyUi) {
         Reset-Scenario
@@ -295,11 +223,13 @@ try {
         $form = Build-MainForm
         try {
             $form.PerformLayout()
-            Assert-Test ($script:ExclusiveButton.Enabled -and $script:CoauthorButton.Enabled) 'Document actions not enabled for mounted library'
-            Assert-Test ($script:ExclusiveButton.Bottom -lt ($form.ClientSize.Height - 52)) 'Document toolbar overlaps footer'
+            Assert-Test ($null -eq $script:ExclusiveButton -and $null -eq $script:ReservationsButton) 'Reservation buttons came back to the main window'
+            $footerTop = $form.ClientSize.Height - 52
+            # Relative to the button height so it holds at any monitor DPI.
+            Assert-Test ($script:EditButton.Bottom -lt $footerTop -and ($footerTop - $script:EditButton.Bottom) -lt $script:EditButton.Height) ('Action buttons overlap the footer or leave an empty band (gap {0}px, button {1}px)' -f ($footerTop - $script:EditButton.Bottom), $script:EditButton.Height)
             $form.Size = $form.MinimumSize
             $form.PerformLayout()
-            Assert-Test ($script:Grid.Bottom -lt $script:EditButton.Top -and $script:EditButton.Bottom -lt $script:ExclusiveButton.Top) 'Controls overlap at minimum size'
+            Assert-Test ($script:Grid.Bottom -lt $script:EditButton.Top -and $script:EditButton.Bottom -lt ($form.ClientSize.Height - 52)) 'Controls overlap at minimum size'
             $artifactDir = Join-Path $PSScriptRoot 'artifacts'
             [void](New-Item -ItemType Directory -Path $artifactDir -Force)
             $form.StartPosition = 'Manual'

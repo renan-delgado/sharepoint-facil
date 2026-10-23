@@ -1,6 +1,6 @@
 ﻿[CmdletBinding()]
 param(
-    [string]$ProductVersion = '1.1.5',
+    [string]$ProductVersion = '1.1.6',
     [string]$ProductManufacturer = 'UTI DA INFORMATICA LTDA',
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
