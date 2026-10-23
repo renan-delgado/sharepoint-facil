@@ -21,14 +21,19 @@ sob demanda: pastas são listadas ao abrir e arquivos baixados ao usar.
 1. **Conectar biblioteca:** entrar com a conta Microsoft, escolher site e
    biblioteca, letra, nome e reconexão no logon. Resultado: unidade no
    Explorador.
-2. **Usar a unidade:** navegar, abrir, salvar, copiar e excluir pelo
+2. **Sincronizar pelo OneDrive (opcional):** na mesma lista de sites e
+   bibliotecas, "Sincronizar com o OneDrive" entrega a biblioteca ao
+   aplicativo OneDrive, como o botão Sincronizar do SharePoint. Resultado:
+   pasta "Site - Biblioteca" no nó da empresa no Explorador. A escolha entre
+   unidade e OneDrive fica com o usuário.
+3. **Usar a unidade:** navegar, abrir, salvar, copiar e excluir pelo
    Explorador. As alterações sobem em segundo plano e as de outros usuários
    aparecem em até cerca de 30 s.
-3. **Abrir documento Office:** o duplo clique em DOCX/XLSX/PPTX abre pelo
+4. **Abrir documento Office:** o duplo clique em DOCX/XLSX/PPTX abre pelo
    SharePoint (coautoria); se não for possível, abre a cópia da unidade.
-4. **Edição exclusiva:** reservar (checkout), editar no Office e concluir
+5. **Edição exclusiva:** reservar (checkout), editar no Office e concluir
    (check-in) pelo menu de contexto ou pela janela.
-5. **Instalar e atualizar:** um instalador que inclui o WinFsp e atualiza a
+6. **Instalar e atualizar:** um instalador que inclui o WinFsp e atualiza a
    versão anterior sem perder as unidades.
 
 ## Fora do escopo atual

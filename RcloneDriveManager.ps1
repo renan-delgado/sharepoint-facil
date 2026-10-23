@@ -1287,18 +1287,34 @@ function Get-OAuthTokenFromOutput {
     return $null
 }
 
-function Get-TokenAccountName {
+function Get-TokenClaimSet {
     param([string]$AccessToken)
+    # Display/identity hints only; Graph still validates the token itself.
     try {
         $parts = $AccessToken.Split('.')
-        if ($parts.Count -lt 2) { return '' }
+        if ($parts.Count -lt 2) { return $null }
         $payload = $parts[1].Replace('-', '+').Replace('_', '/')
         while (($payload.Length % 4) -ne 0) { $payload += '=' }
-        $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload)) | ConvertFrom-Json
-        foreach ($name in @('preferred_username', 'upn', 'email', 'name')) {
-            if ($claims.$name) { return [string]$claims.$name }
-        }
-    } catch {}
+        return [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload)) | ConvertFrom-Json
+    } catch { return $null }
+}
+
+function Get-TokenAccountName {
+    param([string]$AccessToken)
+    $claims = Get-TokenClaimSet $AccessToken
+    foreach ($name in @('preferred_username', 'upn', 'email', 'name')) {
+        if ($claims -and $claims.$name) { return [string]$claims.$name }
+    }
+    return ''
+}
+
+function Get-TokenUserId {
+    param([string]$AccessToken)
+    # rclone's OAuth app has no User.Read scope, so /me is forbidden; the
+    # token's oid is the same Entra object ID Graph uses in identity sets.
+    $claims = Get-TokenClaimSet $AccessToken
+    $id = [Guid]::Empty
+    if ($claims -and [Guid]::TryParse([string]$claims.oid, [ref]$id)) { return [string]$claims.oid }
     return ''
 }
 
@@ -1447,6 +1463,34 @@ function Get-AccessibleLibraries {
         $mappedIds = @($script:Profiles | Where-Object { $_.driveId } | ForEach-Object { $_.driveId })
         return @($libraries | Where-Object { $mappedIds -notcontains $_.DriveId } | Sort-Object DriveId -Unique | Sort-Object Display)
     } finally { Close-BusyWindow $busy }
+}
+
+function Get-OneDriveSyncUri {
+    param($Library, [string]$AccessToken, $Busy)
+    # The same link the SharePoint "Sync" button hands to the OneDrive client.
+    $driveUri = 'https://graph.microsoft.com/v1.0/drives/' + [Uri]::EscapeDataString([string]$Library.DriveId) + '?$select=name,sharePointIds'
+    $drive = Invoke-GraphGet $driveUri $AccessToken $Busy
+    $account = Get-TokenAccountName $AccessToken
+    $ids = $drive.sharePointIds
+    $guid = [Guid]::Empty
+    foreach ($value in @($ids.siteId, $ids.webId, $ids.listId)) {
+        if (-not [Guid]::TryParse([string]$value, [ref]$guid)) { throw 'A Microsoft não retornou os identificadores desta biblioteca.' }
+    }
+    $web = [Uri][string]$ids.siteUrl
+    if (-not $web.IsAbsoluteUri -or $web.Scheme -ne 'https' -or $web.Host -ne ([Uri][string]$Library.WebUrl).Host) {
+        throw 'A Microsoft retornou um endereço de site inesperado para esta biblioteca.'
+    }
+    if (-not $account) { throw 'Não foi possível identificar a conta desta biblioteca.' }
+    $query = [ordered]@{
+        siteId = '{' + $ids.siteId + '}'
+        webId = '{' + $ids.webId + '}'
+        listId = '{' + $ids.listId + '}'
+        userEmail = $account
+        webUrl = $web.AbsoluteUri.TrimEnd('/')
+        webTitle = [string]$Library.SiteName
+        listTitle = [string]$drive.name
+    }
+    return 'odopen://sync/?' + ((@($query.GetEnumerator()) | ForEach-Object { $_.Key + '=' + [Uri]::EscapeDataString([string]$_.Value) }) -join '&')
 }
 
 function Get-DocumentTarget {
@@ -1663,12 +1707,12 @@ function Invoke-DocumentAction {
             Open-DocumentUri $officeUri
             return 'Documento aberto no Office pelo SharePoint. A coautoria depende do Office e das regras da biblioteca.'
         }
-        $me = Invoke-GraphGet 'https://graph.microsoft.com/v1.0/me?$select=id' $token $null
-        if (-not $me.id) { throw 'Não foi possível identificar a conta desta biblioteca.' }
+        $userId = Get-TokenUserId $token
+        if (-not $userId) { throw 'Não foi possível identificar a conta desta biblioteca.' }
         if ($Action -eq 'Finish') {
             if (-not $entry) { throw 'Não há reserva registrada neste computador. Conclua reservas externas no SharePoint.' }
             if (-not $ConfirmedSavedAndClosed) { throw 'Salve, aguarde o Office confirmar o envio e feche o documento antes de concluir.' }
-            if ($entry.state -ne 'Reserved' -or [string]$entry.userId -ne [string]$me.id) {
+            if ($entry.state -ne 'Reserved' -or [string]$entry.userId -ne $userId) {
                 throw 'A reserva exige conferência no SharePoint. Nenhum check-in automático será realizado.'
             }
             Assert-OwnedDocumentCheckout $item ([string]$entry.userId)
@@ -1690,7 +1734,7 @@ function Invoke-DocumentAction {
             throw 'O documento já está reservado ou exige conferência. Use Reservas / concluir ou abra no SharePoint.'
         }
         $entry = [pscustomobject]@{
-            driveId = [string]$profile.driveId; itemId = [string]$item.id; userId = [string]$me.id
+            driveId = [string]$profile.driveId; itemId = [string]$item.id; userId = $userId
             profileId = [string]$profile.id; relativePath = $target.Relative; name = [string]$item.name
             state = 'CheckoutPending'; createdAt = [DateTimeOffset]::UtcNow.ToString('o')
         }
@@ -1698,7 +1742,7 @@ function Invoke-DocumentAction {
         Save-DocumentReservations $entries
         Invoke-GraphDocumentPost ($itemUri + '/checkout') $token
         $confirmed = Invoke-GraphGet (Get-DocumentMetadataUri $itemUri) $token $null
-        Assert-OwnedDocumentCheckout $confirmed ([string]$me.id)
+        Assert-OwnedDocumentCheckout $confirmed $userId
         $entry.state = 'Reserved'
         Save-DocumentReservations $entries
         # If Office cannot launch, retain the reservation for explicit recovery.
@@ -2298,6 +2342,13 @@ function Show-NewSharePointMappingDialog {
     $dialog.Controls.Add($cancel)
     $dialog.AcceptButton = $connect
     $dialog.CancelButton = $cancel
+    $oneDrive = New-Object Windows.Forms.Button
+    $oneDrive.Text = 'Sincronizar com o OneDrive'
+    $oneDrive.Location = New-Object Drawing.Point(31, 367)
+    $oneDrive.Size = New-Object Drawing.Size(220, 36)
+    $oneDrive.AccessibleName = 'Sincronizar a biblioteca escolhida pelo aplicativo OneDrive'
+    Set-DialogButtonStyle $oneDrive $false
+    $dialog.Controls.Add($oneDrive)
 
     $updateLibrary = {
         $entry = $libraryBox.SelectedItem
@@ -2331,11 +2382,21 @@ function Show-NewSharePointMappingDialog {
             return
         }
         $dialog.Tag = [pscustomobject]@{
+            Action = 'Mount'
             Library = $selectedLibrary
             DriveLetter = [string]$driveBox.SelectedItem
             Label = $nameBox.Text.Trim()
             AutoMount = $autoCheck.Checked
         }
+        $dialog.DialogResult = 'OK'
+        $dialog.Close()
+    })
+    $oneDrive.Add_Click({
+        if (-not $libraryBox.SelectedItem) {
+            [Windows.Forms.MessageBox]::Show('Escolha uma biblioteca da lista.', $script:AppName, 'OK', 'Warning') | Out-Null
+            return
+        }
+        $dialog.Tag = [pscustomobject]@{ Action = 'OneDrive'; Library = $libraryBox.SelectedItem }
         $dialog.DialogResult = 'OK'
         $dialog.Close()
     })
@@ -2494,6 +2555,18 @@ function Add-SharePointLibrary {
         }
         $mapping = Show-NewSharePointMappingDialog $libraries $accountName
         if (-not $mapping) { return 'Canceled' }
+        if ($mapping.Action -eq 'OneDrive') {
+            $busy = New-GraphBusyWindow 'Preparando a sincronização pelo OneDrive...'
+            try { $syncUri = Get-OneDriveSyncUri $mapping.Library ([string]$oauth.Data.access_token) $busy }
+            finally { Close-BusyWindow $busy }
+            try { Open-DocumentUri $syncUri }
+            catch {
+                Write-AppLog 'WARN' ('OneDrive não abriu o link de sincronização: ' + $_.Exception.Message)
+                [Windows.Forms.MessageBox]::Show('Não foi possível abrir o OneDrive. Verifique se o aplicativo OneDrive está instalado e conectado à sua conta de trabalho.', $script:AppName, 'OK', 'Warning') | Out-Null
+                return 'Failed'
+            }
+            return 'OneDriveSync'
+        }
 
         $remoteName = 'spf-drive-' + ([Guid]::NewGuid().ToString('N').Substring(0, 16))
         $parameters = @{
@@ -3010,6 +3083,7 @@ function Build-MainForm {
             switch ($result) {
                 'Connected' { & $script:SetStatus 'Biblioteca conectada e pronta para usar' $script:Colors.Success }
                 'AddedOffline' { & $script:SetStatus 'Biblioteca adicionada; tente montar novamente' $script:Colors.Warning }
+                'OneDriveSync' { & $script:SetStatus 'Biblioteca enviada ao OneDrive; confirme a sincronização na janela dele' $script:Colors.Success }
                 'Failed' { & $script:SetStatus 'A conexão não foi concluída' $script:Colors.Danger }
                 default { & $script:SetStatus 'Pronto para conectar' $script:Colors.Success }
             }

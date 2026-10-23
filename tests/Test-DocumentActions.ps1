@@ -46,10 +46,15 @@ function Reset-Scenario {
     Save-DocumentReservations @()
 }
 function Get-ProfileAccessToken { param($Profile); return 'test-only' }
+function Get-TokenUserId { return 'user1' }
+function ConvertTo-TestJwt([hashtable]$Claims) {
+    $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(($Claims | ConvertTo-Json -Compress))).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+    return 'eyJhbGciOiJub25lIn0.' + $payload + '.sig'
+}
 function Invoke-GraphGet {
     param($Uri, $AccessToken, $Busy)
     $script:SeenGetUris += $Uri
-    if ($Uri -like '*/me?*') { return [pscustomobject]@{ id = 'user1' } }
+    Assert-Test ($Uri -notlike '*/me?*' -and $Uri -notlike '*/me') 'Graph /me needs User.Read, which the rclone OAuth app does not grant'
     return $script:Item
 }
 function Invoke-GraphDocumentPost {
@@ -213,6 +218,34 @@ try {
     Reset-Scenario
     $script:Item.name = 'legacy.xls'
     Assert-Throws { Invoke-DocumentAction 'Coauthor' 'Z:\legacy.xls' } 'Unsupported coauthor format accepted'
+    # Account identity comes from the token, never from Graph /me.
+    & {
+        $definition = $ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -eq 'Get-TokenUserId' }
+        . ([scriptblock]::Create($definition.Extent.Text))
+        $jwt = ConvertTo-TestJwt @{ oid = '9603323d-31d5-4b5f-9eac-ecb93a35c600'; upn = 'ana.silva@tenant.com' }
+        Assert-Test ((Get-TokenUserId $jwt) -eq '9603323d-31d5-4b5f-9eac-ecb93a35c600' -and (Get-TokenAccountName $jwt) -eq 'ana.silva@tenant.com') 'Token identity claims not read'
+        Assert-Test ((Get-TokenUserId (ConvertTo-TestJwt @{ oid = 'not-a-guid' })) -eq '' -and (Get-TokenUserId 'garbage') -eq '') 'Invalid token identity accepted'
+    }
+
+    # OneDrive sync: the same odopen link as SharePoint's Sync button.
+    & {
+        $jwt = ConvertTo-TestJwt @{ upn = 'ana.silva@tenant.com' }
+        $library = [pscustomobject]@{ DriveId = 'b!drive'; SiteName = 'UTI Docs & Cia'; LibraryName = 'Documentos'; WebUrl = 'https://tenant.sharepoint.com/sites/UTI-DOCS/Documentos%20Compartilhados' }
+        $script:SyncDrive = [pscustomobject]@{ name = 'Documentos'; sharePointIds = [pscustomobject]@{ siteId = '11111111-1111-1111-1111-111111111111'; webId = '22222222-2222-2222-2222-222222222222'; listId = '33333333-3333-3333-3333-333333333333'; siteUrl = 'https://tenant.sharepoint.com/sites/UTI-DOCS' } }
+        function Invoke-GraphGet {
+            param($Uri)
+            Assert-Test ($Uri -eq 'https://graph.microsoft.com/v1.0/drives/b!drive?$select=name,sharePointIds') 'Sync lookup must select the drive SharePoint IDs'
+            return $script:SyncDrive
+        }
+        $uri = Get-OneDriveSyncUri $library $jwt $null
+        Assert-Test ($uri -eq 'odopen://sync/?siteId=%7B11111111-1111-1111-1111-111111111111%7D&webId=%7B22222222-2222-2222-2222-222222222222%7D&listId=%7B33333333-3333-3333-3333-333333333333%7D&userEmail=ana.silva%40tenant.com&webUrl=https%3A%2F%2Ftenant.sharepoint.com%2Fsites%2FUTI-DOCS&webTitle=UTI%20Docs%20%26%20Cia&listTitle=Documentos') ('Unexpected OneDrive sync link: ' + $uri)
+        $script:SyncDrive.sharePointIds.siteUrl = 'https://evil.example.com/sites/UTI-DOCS'
+        Assert-Throws { Get-OneDriveSyncUri $library $jwt $null } 'Sync link accepted a site on another host'
+        $script:SyncDrive.sharePointIds.siteUrl = 'https://tenant.sharepoint.com/sites/UTI-DOCS'
+        $script:SyncDrive.sharePointIds.listId = $null
+        Assert-Throws { Get-OneDriveSyncUri $library $jwt $null } 'Sync link built without a list ID'
+    }
+
     # Office must get the file address, not the browser viewer link.
     Reset-Scenario
     $script:Item.webUrl = 'https://tenant.sharepoint.com/sites/Docs/_layouts/15/Doc.aspx?sourcedoc=%7B1%7D&file=Planilha.xlsx&action=default'

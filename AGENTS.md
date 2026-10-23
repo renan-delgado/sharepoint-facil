@@ -37,6 +37,8 @@ unidade usando rclone (VFS + Microsoft Graph) e WinFsp. Escopo em
   nunca chegam ao SharePoint.
 - Fluxos de documento e duplo clique: [DOCUMENTOS-OFFICE.md](DOCUMENTOS-OFFICE.md).
   O duplo clique sempre precisa abrir o arquivo (fallback para a unidade).
+- Não chame `/me` no Graph: o token do rclone não tem `User.Read` (403).
+  Use `Get-TokenAccountName` / `Get-TokenUserId`.
 - Testes simulam o Graph. Mudança de comportamento real (envio, Office,
   instalador) exige validação numa biblioteca real e registro da evidência.
 - Mudar versão: `AppVersion` no script, `Launcher.cs`, os dois `.wixproj` e

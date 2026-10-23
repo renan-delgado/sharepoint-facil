@@ -53,6 +53,14 @@ Seções de `RcloneDriveManager.ps1`, na ordem do arquivo:
 - **App → Graph:** só `graph.microsoft.com` por HTTPS, com o token do remote
   da própria biblioteca (`Get-ProfileAccessToken`); POST sem repetição
   automática.
+- **App → OneDrive:** `Get-OneDriveSyncUri` lê `sharePointIds` do drive no
+  Graph e abre `odopen://sync/?siteId={…}&webId={…}&listId={…}&userEmail=…&webUrl=…&webTitle=…&listTitle=…`,
+  o mesmo link do botão Sincronizar do SharePoint (formato não documentado
+  oficialmente; validado com o cliente OneDrive em 23/10/2026). Depois disso
+  a sincronização é do OneDrive; o app não a acompanha.
+- **Identidade da conta:** o app OAuth do rclone não concede `User.Read`,
+  então `/me` responde 403. O login (`upn`) e o ID do usuário (`oid`) vêm das
+  claims do token (`Get-TokenAccountName`, `Get-TokenUserId`).
 - **App → Office:** URIs `ms-word:ofe|u|<webDavUrl>`; a URL é validada contra
   o host da biblioteca (`Get-TrustedDocumentUrl`).
 - Dados locais: `%LOCALAPPDATA%\SharePointFacil` (configurações, cache VFS,

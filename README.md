@@ -10,6 +10,8 @@ sincronizar a biblioteca inteira.
 - Seleção de sites e bibliotecas acessíveis pela conta Microsoft 365, com
   autenticação delegada (cada usuário usa as próprias permissões).
 - Letra, nome e reconexão no logon por biblioteca.
+- Opcional: sincronizar qualquer biblioteca da lista pelo próprio OneDrive,
+  como o botão Sincronizar do SharePoint, sem abrir site por site.
 - Cache local com limite de tamanho; envios em segundo plano com nova tentativa.
 - Atualização automática de alterações feitas por outros usuários, pelo Teams ou
   pelo site.
