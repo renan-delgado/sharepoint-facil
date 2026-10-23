@@ -1,0 +1,14 @@
+# Third-party software: never commit. rclone.exe is a pinned build input
+# (see installer/config/payload.manifest.json); download it from rclone.org.
+rclone.exe
+rclone.1
+README.txt
+README.html
+git-log.txt
+*.msixbundle
+*.msix
+*.msi
+*.exe
+
+# Test output
+tests/artifacts/

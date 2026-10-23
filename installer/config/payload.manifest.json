@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "launcher": {
+    "source": "..\\build\\launcher\\SharePointFacil.exe",
+    "destination": "SharePointFacil.exe"
+  },
+  "application": {
+    "source": "..\\..\\RcloneDriveManager.ps1",
+    "destination": "RcloneDriveManager.ps1"
+  },
+  "rclone": {
+    "source": "..\\..\\rclone.exe",
+    "destination": "rclone.exe",
+    "version": "1.75.1",
+    "sha256": "033EEE51C9AD47C2DE2624B6674D355274BCD6CF0027A5F85DB4437BA24AE81C"
+  },
+  "icon": {
+    "source": "..\\assets\\SharePointFacil.ico",
+    "destination": "SharePointFacil.ico"
+  },
+  "notices": {
+    "source": "..\\assets\\THIRD-PARTY-NOTICES.txt",
+    "destination": "THIRD-PARTY-NOTICES.txt"
+  }
+}

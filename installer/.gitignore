@@ -1,0 +1,8 @@
+# Generated staging and WiX build output.
+/build/
+/bin/
+/obj/
+/.tools/
+
+# Third-party installers are verified inputs to a release, not source files.
+/third-party/winfsp/*.msi

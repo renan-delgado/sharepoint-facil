@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'RcloneDriveManager.Installer'">
+    <BaseIntermediateOutputPath>obj\msi\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>obj\msi\</MSBuildProjectExtensionsPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'RcloneDriveManager.Bundle'">
+    <BaseIntermediateOutputPath>obj\bundle\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>obj\bundle\</MSBuildProjectExtensionsPath>
+  </PropertyGroup>
+</Project>

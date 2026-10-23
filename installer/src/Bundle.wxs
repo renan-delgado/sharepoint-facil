@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix
+    xmlns="http://wixtoolset.org/schemas/v4/wxs"
+    xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle
+      Name="SharePoint Fácil - Instalador"
+      Manufacturer="$(var.ProductManufacturer)"
+      Version="$(var.ProductVersion)"
+      UpgradeCode="{8FB9A6D8-01B6-4B49-A2AA-54C1725ABBC8}"
+      IconSourceFile="$(var.PayloadDir)\SharePointFacil.ico"
+      Compressed="yes"
+      DisableModify="yes">
+
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication
+          LicenseUrl=""
+          Theme="hyperlinkLicense"
+          ShowVersion="yes"
+          SuppressOptionsUI="yes" />
+    </BootstrapperApplication>
+
+    <Chain>
+      <!-- Always let the publisher MSI detect, maintain or upgrade WinFsp 2.x.
+           Permanent keeps this shared prerequisite when the app is removed. -->
+      <MsiPackage
+          Id="WinFsp"
+          SourceFile="$(var.WinFspMsiPath)"
+          ForcePerMachine="yes"
+          Permanent="yes"
+          Vital="yes" />
+      <MsiPackage
+          Id="RcloneDriveManager"
+          SourceFile="$(var.ApplicationMsiPath)"
+          ForcePerMachine="yes"
+          Vital="yes" />
+    </Chain>
+  </Bundle>
+</Wix>

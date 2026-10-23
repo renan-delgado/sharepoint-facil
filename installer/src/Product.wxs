@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="SharePoint Fácil"
+      Manufacturer="$(var.ProductManufacturer)"
+      Language="1046"
+      Version="$(var.ProductVersion)"
+      ProductCode="$(var.ProductCode)"
+      UpgradeCode="{9E604658-F84E-4A51-8E1E-66A85F43A5BA}"
+      Scope="perMachine">
+
+    <SummaryInformation
+        Description="Conecte bibliotecas do SharePoint ao Explorador de Arquivos"
+        Manufacturer="$(var.ProductManufacturer)" />
+
+    <Launch
+        Condition="VersionNT64"
+        Message="O SharePoint Fácil requer Windows de 64 bits." />
+
+    <MajorUpgrade
+        Schedule="afterInstallInitialize"
+        DowngradeErrorMessage="Uma versão mais recente do SharePoint Fácil já está instalada." />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="SharePointFacil.ico" SourceFile="$(var.PayloadDir)\SharePointFacil.ico" />
+
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPPRODUCTICON" Value="SharePointFacil.ico" />
+    <Property Id="ARPCONTACT" Value="UTI DA INFORMATICA LTDA — CNPJ 04.181.850/0001-94" />
+    <Property Id="ARPURLINFOABOUT" Value="https://utidainformatica.net/" />
+    <Property Id="ARPHELPLINK" Value="https://utidainformatica.net/contato/" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="SharePoint Fácil">
+        <Component Id="ApplicationFiles" Guid="{8E1CEE4E-31FD-4214-80A3-09B4E6C8B10C}" Bitness="always64">
+          <File Id="RcloneDriveManagerPs1" Source="$(var.PayloadDir)\RcloneDriveManager.ps1" KeyPath="yes" />
+          <File Id="LauncherExe" Source="$(var.PayloadDir)\SharePointFacil.exe" />
+          <File Id="RcloneExe" Source="$(var.PayloadDir)\rclone.exe" />
+          <File Id="AppIcon" Source="$(var.PayloadDir)\SharePointFacil.ico" />
+          <File Id="ThirdPartyNotices" Source="$(var.PayloadDir)\THIRD-PARTY-NOTICES.txt" />
+        </Component>
+        <Component Id="DocumentContextMenu" Guid="{A5A63BAC-03D9-466A-98F8-EA6325BCF60B}" Bitness="always64">
+          <RegistryKey Root="HKLM" Key="Software\Classes\AllFilesystemObjects\shell\SharePointFacil" ForceDeleteOnUninstall="yes">
+            <RegistryValue Name="MUIVerb" Value="SharePoint Fácil" Type="string" KeyPath="yes" />
+            <RegistryValue Name="SubCommands" Value="" Type="string" />
+            <RegistryValue Name="Icon" Value="[INSTALLFOLDER]SharePointFacil.ico" Type="string" />
+            <RegistryKey Key="shell\01Exclusive">
+              <RegistryValue Value="Reservar este arquivo e abrir no Office" Type="string" />
+              <RegistryValue Name="MultiSelectModel" Value="Single" Type="string" />
+              <RegistryKey Key="command">
+                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -DocumentAction Exclusive -DocumentPath &quot;%1&quot;" Type="string" />
+              </RegistryKey>
+            </RegistryKey>
+            <RegistryKey Key="shell\02Coauthor">
+              <RegistryValue Value="Abrir para coautoria" Type="string" />
+              <RegistryValue Name="MultiSelectModel" Value="Single" Type="string" />
+              <RegistryKey Key="command">
+                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -DocumentAction Coauthor -DocumentPath &quot;%1&quot;" Type="string" />
+              </RegistryKey>
+            </RegistryKey>
+            <RegistryKey Key="shell\03Web">
+              <RegistryValue Value="Abrir no SharePoint" Type="string" />
+              <RegistryValue Name="MultiSelectModel" Value="Single" Type="string" />
+              <RegistryKey Key="command">
+                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -DocumentAction SharePoint -DocumentPath &quot;%1&quot;" Type="string" />
+              </RegistryKey>
+            </RegistryKey>
+            <RegistryKey Key="shell\04Finish">
+              <RegistryValue Value="Concluir edição exclusiva" Type="string" />
+              <RegistryValue Name="MultiSelectModel" Value="Single" Type="string" />
+              <RegistryKey Key="command">
+                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -DocumentAction Finish -DocumentPath &quot;%1&quot;" Type="string" />
+              </RegistryKey>
+            </RegistryKey>
+          </RegistryKey>
+        </Component>
+        <!-- Double-click on DOCX/XLSX/PPTX: the launcher opens files on our drives by
+             SharePoint URL and hands any other file to Office's untouched Open verb.
+             Uninstall removes the default value, so Windows falls back to Open. -->
+        <Component Id="OfficeOpenVerbs" Guid="{3C2F0D7B-6E0A-4B57-9A55-2D7E1F4C8B21}" Bitness="always64">
+          <RegistryKey Root="HKLM" Key="Software\Classes\Word.Document.12\shell">
+            <RegistryValue Value="SharePointFacil.Open" Type="string" KeyPath="yes" />
+            <RegistryKey Key="SharePointFacil.Open" ForceDeleteOnUninstall="yes">
+              <RegistryValue Value="Abrir (SharePoint Fácil)" Type="string" />
+              <RegistryKey Key="command">
+                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -OfficeOpen &quot;%1&quot;" Type="string" />
+              </RegistryKey>
+            </RegistryKey>
+          </RegistryKey>
+          <RegistryKey Root="HKLM" Key="Software\Classes\Excel.Sheet.12\shell">
+            <RegistryValue Value="SharePointFacil.Open" Type="string" />
+            <RegistryKey Key="SharePointFacil.Open" ForceDeleteOnUninstall="yes">
+              <RegistryValue Value="Abrir (SharePoint Fácil)" Type="string" />
+              <RegistryKey Key="command">
+                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -OfficeOpen &quot;%1&quot;" Type="string" />
+              </RegistryKey>
+            </RegistryKey>
+          </RegistryKey>
+          <RegistryKey Root="HKLM" Key="Software\Classes\PowerPoint.Show.12\shell">
+            <RegistryValue Value="SharePointFacil.Open" Type="string" />
+            <RegistryKey Key="SharePointFacil.Open" ForceDeleteOnUninstall="yes">
+              <RegistryValue Value="Abrir (SharePoint Fácil)" Type="string" />
+              <RegistryKey Key="command">
+                <RegistryValue Value="&quot;[INSTALLFOLDER]SharePointFacil.exe&quot; -OfficeOpen &quot;%1&quot;" Type="string" />
+              </RegistryKey>
+            </RegistryKey>
+          </RegistryKey>
+        </Component>
+        <Component Id="ApplicationShortcuts" Guid="{87AEF70F-336C-493E-8979-84D31DEEB9D0}" Bitness="always64">
+          <RegistryValue
+              Root="HKCU"
+              Key="Software\UTI DA INFORMATICA LTDA\SharePoint Fácil"
+              Name="ShortcutsInstalled"
+              Type="integer"
+              Value="1"
+              KeyPath="yes" />
+          <Shortcut
+              Id="StartMenuShortcutLink"
+              Directory="ApplicationProgramsFolder"
+              Target="[INSTALLFOLDER]SharePointFacil.exe"
+              Name="SharePoint Fácil"
+              Description="Conecte bibliotecas do SharePoint ao Explorador de Arquivos"
+              Icon="SharePointFacil.ico"
+              WorkingDirectory="INSTALLFOLDER" />
+          <Shortcut
+              Id="DesktopShortcutLink"
+              Directory="DesktopFolder"
+              Target="[INSTALLFOLDER]SharePointFacil.exe"
+              Name="SharePoint Fácil"
+              Description="Conecte bibliotecas do SharePoint ao Explorador de Arquivos"
+              Icon="SharePointFacil.ico"
+              WorkingDirectory="INSTALLFOLDER" />
+          <Shortcut
+              Id="AutoMountShortcutLink"
+              Directory="StartupFolder"
+              Target="[INSTALLFOLDER]SharePointFacil.exe"
+              Name="SharePoint Fácil"
+              Description="Reconecte suas bibliotecas do SharePoint ao entrar no Windows"
+              Arguments="-AutoMount"
+              Icon="SharePointFacil.ico"
+              WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder
+              Id="RemoveApplicationProgramsFolder"
+              Directory="ApplicationProgramsFolder"
+              On="uninstall" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="SharePoint Fácil" />
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+    <StandardDirectory Id="StartupFolder" />
+
+    <Feature Id="MainFeature" Title="SharePoint Fácil" Level="1">
+      <ComponentRef Id="ApplicationFiles" />
+      <ComponentRef Id="DocumentContextMenu" />
+      <ComponentRef Id="OfficeOpenVerbs" />
+      <ComponentRef Id="ApplicationShortcuts" />
+    </Feature>
+  </Package>
+</Wix>

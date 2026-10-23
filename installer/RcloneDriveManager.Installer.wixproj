@@ -1,0 +1,19 @@
+﻿<Project Sdk="WixToolset.Sdk/4.0.6">
+  <PropertyGroup>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.1.3</ProductVersion>
+    <ProductCode Condition="'$(ProductCode)' == ''">*</ProductCode>
+    <ProductManufacturer Condition="'$(ProductManufacturer)' == ''">UTI DA INFORMATICA LTDA</ProductManufacturer>
+    <PayloadDir Condition="'$(PayloadDir)' == ''">$(MSBuildProjectDirectory)\build\payload</PayloadDir>
+
+    <OutputType>Package</OutputType>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <BaseOutputPath>bin\msi\</BaseOutputPath>
+    <OutputName>SharePointFacil-$(ProductVersion)-x64</OutputName>
+    <DefineConstants>ProductVersion=$(ProductVersion);ProductCode=$(ProductCode);ProductManufacturer=$(ProductManufacturer);PayloadDir=$(PayloadDir);InstallerSourceDir=$(MSBuildProjectDirectory)</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="src\Product.wxs" />
+  </ItemGroup>
+</Project>
