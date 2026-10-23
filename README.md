@@ -55,7 +55,7 @@ versão e SHA-256 fixados:
 3. Gere os instaladores:
 
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File installer\scripts\Build-Installer.ps1 -IncludeBundle
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File installer\scripts\Build-Installer.ps1 -IncludeBundle
    ```
 
 Detalhes em [`installer/README.md`](installer/README.md).
@@ -63,15 +63,28 @@ Detalhes em [`installer/README.md`](installer/README.md).
 ## Testes
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test-DocumentActions.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tests\Test-Launcher.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File installer\scripts\Test-InstallerLayout.ps1
+pwsh -NoProfile -File scripts\check.ps1
 ```
+
+Roda o lint (PSScriptAnalyzer, quando instalado) e os três conjuntos de
+testes. Detalhes em [`docs/quality.md`](docs/quality.md).
 
 Os testes simulam o Microsoft Graph e não substituem a validação em um tenant
 real. Veja [`DOCUMENTOS-OFFICE.md`](DOCUMENTOS-OFFICE.md) e
 [`AUDITORIA-RCLONE-SHAREPOINT.md`](AUDITORIA-RCLONE-SHAREPOINT.md) para o
 comportamento esperado e as limitações conhecidas.
+
+## Documentação
+
+- [Produto e escopo](PRODUCT.md)
+- [Preparação local](docs/onboarding.md)
+- [Código e arquitetura](docs/architecture.md)
+- [Interface](docs/design.md)
+- [Qualidade e verificações](docs/quality.md)
+- [Instruções para agentes de IA](AGENTS.md)
+- [Setup e evidências](docs/setup.md)
+- [Edição de documentos Office](DOCUMENTOS-OFFICE.md) e
+  [auditoria do backend rclone](AUDITORIA-RCLONE-SHAREPOINT.md)
 
 ## Créditos
 
