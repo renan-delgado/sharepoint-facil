@@ -114,7 +114,7 @@ permitidos no pacote.
 ## Gerar somente o MSI
 
 ```powershell
-.\installer\scripts\Build-Installer.ps1 -ProductVersion 1.1.3
+.\installer\scripts\Build-Installer.ps1 -ProductVersion 1.1.4
 ```
 
 O script prepara o pacote, valida o SHA-256 e a versão do rclone, restaura o
@@ -127,7 +127,7 @@ Com o WinFsp fixado presente em `third-party\winfsp\winfsp.msi`, execute:
 
 ```powershell
 .\installer\scripts\Build-Installer.ps1 `
-  -ProductVersion 1.1.3 `
+  -ProductVersion 1.1.4 `
   -IncludeBundle `
   -WinFspMsiPath .\installer\third-party\winfsp\winfsp.msi
 ```

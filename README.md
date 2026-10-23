@@ -28,9 +28,17 @@ sincronizar a biblioteca inteira.
 
 ## Instalação
 
-Baixe `SharePointFacilSetup-<versão>-x64.exe` na página de releases e execute.
-O instalador instala ou atualiza o WinFsp e depois o aplicativo. Abra
-**SharePoint Fácil** pelo menu Iniciar e clique em **Conectar biblioteca**.
+**[⬇ Baixar o instalador para Windows (64 bits)](https://github.com/renan-delgado/sharepoint-facil/releases/latest/download/SharePointFacilSetup-x64.exe)**
+
+Execute o instalador baixado. Ele instala ou atualiza o WinFsp e depois o
+aplicativo; uma versão anterior é atualizada sem perder as unidades
+configuradas. Abra **SharePoint Fácil** pelo menu Iniciar e clique em
+**Conectar biblioteca**.
+
+O instalador ainda não tem assinatura digital, então o Windows SmartScreen pode
+exibir um aviso: clique em **Mais informações** e em **Executar assim mesmo**.
+Versões anteriores e o MSI para implantação por administradores estão em
+[Releases](https://github.com/renan-delgado/sharepoint-facil/releases).
 
 ## Compilar
 
