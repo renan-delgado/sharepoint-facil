@@ -261,16 +261,6 @@ function Exit-AppBusy {
 
 function Begin-UiAction {
     if ($script:IsBusy) { return $false }
-    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    $script:UiDocumentGuard = New-Object Threading.Mutex($false, ('Local\SharePointFacil-Documents-' + $sid))
-    $held = $false
-    try { $held = $script:UiDocumentGuard.WaitOne(0) } catch [Threading.AbandonedMutexException] { $held = $true }
-    if (-not $held) {
-        $script:UiDocumentGuard.Dispose()
-        $script:UiDocumentGuard = $null
-        [Windows.Forms.MessageBox]::Show('Há uma operação em andamento pelo Explorador. Aguarde para continuar.', $script:AppName) | Out-Null
-        return $false
-    }
     Enter-AppBusy
     if ($script:ConnectButton) { $script:ConnectButton.Enabled = $false }
     if ($script:UpdateActions) { & $script:UpdateActions }
@@ -279,11 +269,6 @@ function Begin-UiAction {
 
 function End-UiAction {
     Exit-AppBusy
-    if ($script:UiDocumentGuard) {
-        $script:UiDocumentGuard.ReleaseMutex()
-        $script:UiDocumentGuard.Dispose()
-        $script:UiDocumentGuard = $null
-    }
     if ($script:ConnectButton) { $script:ConnectButton.Enabled = -not $script:IsBusy }
     if ($script:UpdateActions) { & $script:UpdateActions }
 }
@@ -1484,6 +1469,43 @@ function Get-OneDriveSyncUri {
     return 'odopen://sync/?' + ((@($query.GetEnumerator()) | ForEach-Object { $_.Key + '=' + [Uri]::EscapeDataString([string]$_.Value) }) -join '&')
 }
 
+function Invoke-GraphPost {
+    param([string]$Uri, [string]$AccessToken, $Body, $Busy)
+    $parsed = [Uri]$Uri
+    if ($parsed.Scheme -ne 'https' -or $parsed.Host -ne 'graph.microsoft.com' -or $parsed.UserInfo -or -not $parsed.IsDefaultPort) {
+        throw 'Endereço de operação Microsoft inválido.'
+    }
+    $client = New-Object Net.Http.HttpClient
+    $client.DefaultRequestHeaders.Authorization = New-Object Net.Http.Headers.AuthenticationHeaderValue('Bearer', $AccessToken)
+    $content = New-Object Net.Http.StringContent(($Body | ConvertTo-Json -Depth 6 -Compress), [Text.Encoding]::UTF8, 'application/json')
+    try {
+        # Mutations are never retried automatically; a timeout may have committed.
+        $response = Wait-UiTask ($client.PostAsync($parsed, $content)) $Busy 35
+        $text = Wait-UiTask ($response.Content.ReadAsStringAsync()) $Busy 15
+        if ($response.IsSuccessStatusCode) { return ($text | ConvertFrom-Json) }
+        return [pscustomobject]@{ GraphError = [int]$response.StatusCode }
+    } finally { $content.Dispose(); $client.Dispose() }
+}
+
+function Add-OneDriveShortcut {
+    param($Library, [string]$AccessToken, $Busy)
+    # "Add shortcut to My files": a remoteItem in the user's OneDrive root
+    # pointing at the library root. OneDrive prefixes the site name itself.
+    $rootUri = 'https://graph.microsoft.com/v1.0/drives/' + [Uri]::EscapeDataString([string]$Library.DriveId) + '/root?$select=id'
+    $root = Invoke-GraphGet $rootUri $AccessToken $Busy
+    if (-not $root.id) { throw 'A Microsoft não retornou a pasta raiz desta biblioteca.' }
+    $body = @{
+        name = [string]$Library.LibraryName
+        remoteItem = @{ id = [string]$root.id; parentReference = @{ driveId = [string]$Library.DriveId } }
+        '@microsoft.graph.conflictBehavior' = 'fail'
+    }
+    $created = Invoke-GraphPost 'https://graph.microsoft.com/v1.0/me/drive/root/children' $AccessToken $body $Busy
+    if ($created.GraphError -eq 409) { throw 'Já existe um atalho para esta biblioteca em Meus arquivos do OneDrive.' }
+    if ($created.GraphError -eq 403) { throw (New-Object Security.SecurityException('A conta não tem permissão para criar atalhos no OneDrive.')) }
+    if ($created.GraphError) { throw ('A Microsoft não criou o atalho (HTTP {0}).' -f $created.GraphError) }
+    return $created
+}
+
 function Get-DocumentTarget {
     param([string]$Path)
     # Resolve lexically: never follow a local link or guess a SharePoint URL.
@@ -1596,29 +1618,19 @@ function Assert-DocumentCacheClean {
 function Invoke-DocumentAction {
     param([string]$Action, [string]$Path)
     if ($Action -notin @('SharePoint', 'Auto')) { throw 'Ação de documento inválida.' }
-    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-    $guard = New-Object Threading.Mutex($false, ('Local\SharePointFacil-Documents-' + $sid))
-    $held = $false
-    try {
-        # A multi-file double-click launches one Auto per file: queue them.
-        $wait = if ($Action -eq 'Auto') { 30000 } else { 0 }
-        try { $held = $guard.WaitOne($wait) } catch [Threading.AbandonedMutexException] { $held = $true }
-        if (-not $held) { throw 'Outra operação de documento está em andamento. Aguarde e tente novamente.' }
-        if ($DocumentAction) { Load-Settings }
-        $target = Get-DocumentTarget $Path
-        $profile = $target.Profile
-        $token = Get-ProfileAccessToken $profile
-        $item = Invoke-GraphGet (Get-DocumentMetadataUri $target.Uri) $token $null
-        if ($Action -eq 'SharePoint') { Open-DocumentUri (Get-TrustedDocumentUrl $profile $item); return 'Aberto no SharePoint.' }
-        # Local edits not yet uploaded are newer than the server copy.
-        Assert-DocumentCacheClean $profile
-        # Office handles checkout/check-in itself for files opened by URL.
-        Open-DocumentUri (Get-OfficeDocumentUri $profile $item)
-        return 'Documento aberto no Office pelo SharePoint.'
-    } finally {
-        if ($held) { $guard.ReleaseMutex() }
-        $guard.Dispose()
-    }
+    # Read-only on SharePoint and the cache. Concurrent Explorer launches are
+    # already queued by the per-user -DocumentCommand app mutex.
+    if ($DocumentAction) { Load-Settings }
+    $target = Get-DocumentTarget $Path
+    $profile = $target.Profile
+    $token = Get-ProfileAccessToken $profile
+    $item = Invoke-GraphGet (Get-DocumentMetadataUri $target.Uri) $token $null
+    if ($Action -eq 'SharePoint') { Open-DocumentUri (Get-TrustedDocumentUrl $profile $item); return 'Aberto no SharePoint.' }
+    # Local edits not yet uploaded are newer than the server copy.
+    Assert-DocumentCacheClean $profile
+    # Office handles checkout/check-in itself for files opened by URL.
+    Open-DocumentUri (Get-OfficeDocumentUri $profile $item)
+    return 'Documento aberto no Office pelo SharePoint.'
 }
 
 function Show-DocumentAction {
@@ -2132,6 +2144,13 @@ function Show-NewSharePointMappingDialog {
     $oneDrive.AccessibleName = 'Sincronizar a biblioteca escolhida pelo aplicativo OneDrive'
     Set-DialogButtonStyle $oneDrive $false
     $dialog.Controls.Add($oneDrive)
+    $shortcut = New-Object Windows.Forms.Button
+    $shortcut.Text = 'Adicionar atalho ao OneDrive'
+    $shortcut.Location = New-Object Drawing.Point(259, 367)
+    $shortcut.Size = New-Object Drawing.Size(230, 36)
+    $shortcut.AccessibleName = 'Adicionar a biblioteca escolhida como atalho em Meus arquivos do OneDrive'
+    Set-DialogButtonStyle $shortcut $false
+    $dialog.Controls.Add($shortcut)
 
     $updateLibrary = {
         $entry = $libraryBox.SelectedItem
@@ -2180,6 +2199,15 @@ function Show-NewSharePointMappingDialog {
             return
         }
         $dialog.Tag = [pscustomobject]@{ Action = 'OneDrive'; Library = $libraryBox.SelectedItem }
+        $dialog.DialogResult = 'OK'
+        $dialog.Close()
+    })
+    $shortcut.Add_Click({
+        if (-not $libraryBox.SelectedItem) {
+            [Windows.Forms.MessageBox]::Show('Escolha uma biblioteca da lista.', $script:AppName, 'OK', 'Warning') | Out-Null
+            return
+        }
+        $dialog.Tag = [pscustomobject]@{ Action = 'OneDriveShortcut'; Library = $libraryBox.SelectedItem }
         $dialog.DialogResult = 'OK'
         $dialog.Close()
     })
@@ -2349,6 +2377,18 @@ function Add-SharePointLibrary {
                 return 'Failed'
             }
             return 'OneDriveSync'
+        }
+        if ($mapping.Action -eq 'OneDriveShortcut') {
+            $busy = New-GraphBusyWindow 'Criando o atalho no OneDrive...'
+            try { $created = Add-OneDriveShortcut $mapping.Library ([string]$oauth.Data.access_token) $busy }
+            catch [OperationCanceledException] { throw }
+            catch {
+                Write-AppLog 'WARN' ('Atalho no OneDrive não criado: ' + $_.Exception.Message)
+                [Windows.Forms.MessageBox]::Show($_.Exception.Message, $script:AppName, 'OK', 'Warning') | Out-Null
+                return 'Failed'
+            } finally { Close-BusyWindow $busy }
+            [Windows.Forms.MessageBox]::Show(('Atalho "{0}" criado em Meus arquivos do OneDrive.' -f $created.name), $script:AppName, 'OK', 'Information') | Out-Null
+            return 'OneDriveShortcut'
         }
 
         $remoteName = 'spf-drive-' + ([Guid]::NewGuid().ToString('N').Substring(0, 16))
@@ -2824,6 +2864,7 @@ function Build-MainForm {
                 'Connected' { & $script:SetStatus 'Biblioteca conectada e pronta para usar' $script:Colors.Success }
                 'AddedOffline' { & $script:SetStatus 'Biblioteca adicionada; tente montar novamente' $script:Colors.Warning }
                 'OneDriveSync' { & $script:SetStatus 'Biblioteca enviada ao OneDrive; confirme a sincronização na janela dele' $script:Colors.Success }
+                'OneDriveShortcut' { & $script:SetStatus 'Atalho criado em Meus arquivos do OneDrive' $script:Colors.Success }
                 'Failed' { & $script:SetStatus 'A conexão não foi concluída' $script:Colors.Danger }
                 default { & $script:SetStatus 'Pronto para conectar' $script:Colors.Success }
             }

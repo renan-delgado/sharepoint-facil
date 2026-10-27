@@ -58,6 +58,13 @@ Seções de `RcloneDriveManager.ps1`, na ordem do arquivo:
   o mesmo link do botão Sincronizar do SharePoint (formato não documentado
   oficialmente; validado com o cliente OneDrive em 23/10/2026). Depois disso
   a sincronização é do OneDrive; o app não a acompanha.
+- **Atalho no OneDrive:** `Add-OneDriveShortcut` faz `POST /me/drive/root/children`
+  com `remoteItem` apontando para a raiz da biblioteca e `conflictBehavior=fail`
+  (API documentada do OneDrive; validada no OneDrive for Business em
+  27/10/2026). O OneDrive prefixa o nome do site; 409 indica atalho existente.
+- **Concorrência:** não há trava compartilhada entre a janela e o Explorador;
+  as ações de documento só leem dados, e comandos simultâneos do Explorador
+  são enfileirados pela trava do processo (`-DocumentCommand`).
 - **Identidade da conta:** o app OAuth do rclone não concede `User.Read`,
   então `/me` responde 403. O login (`upn`) vem das claims do token
   (`Get-TokenAccountName`).

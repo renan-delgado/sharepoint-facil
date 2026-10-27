@@ -25,7 +25,8 @@ sob demanda: pastas são listadas ao abrir e arquivos baixados ao usar.
    bibliotecas, "Sincronizar com o OneDrive" entrega a biblioteca ao
    aplicativo OneDrive, como o botão Sincronizar do SharePoint. Resultado:
    pasta "Site - Biblioteca" no nó da empresa no Explorador. A escolha entre
-   unidade e OneDrive fica com o usuário.
+   unidade e OneDrive fica com o usuário. "Adicionar atalho ao OneDrive" cria
+   a biblioteca como atalho em Meus arquivos, como o botão do Teams.
 3. **Usar a unidade:** navegar, abrir, salvar, copiar e excluir pelo
    Explorador. As alterações sobem em segundo plano e as de outros usuários
    aparecem em até cerca de 30 s.

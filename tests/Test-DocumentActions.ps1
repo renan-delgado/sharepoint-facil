@@ -185,6 +185,30 @@ try {
         Assert-Throws { Get-OneDriveSyncUri $library $jwt $null } 'Sync link built without a list ID'
     }
 
+    # OneDrive shortcut: a remoteItem in My files pointing at the library root.
+    & {
+        $library = [pscustomobject]@{ DriveId = 'b!drive'; SiteName = 'UTI Docs'; LibraryName = 'Documentos'; WebUrl = 'https://tenant.sharepoint.com/sites/UTI-DOCS/Documentos' }
+        function Invoke-GraphGet {
+            param($Uri)
+            Assert-Test ($Uri -eq 'https://graph.microsoft.com/v1.0/drives/b!drive/root?$select=id') 'Shortcut must target the library root item'
+            return [pscustomobject]@{ id = 'root-item' }
+        }
+        $script:PostResult = [pscustomobject]@{ id = 'local1'; name = 'UTI Docs - Documentos'; remoteItem = @{ id = 'root-item' } }
+        $script:PostCalls = @()
+        function Invoke-GraphPost { $script:PostCalls += [pscustomobject]@{ Uri = $args[0]; Body = $args[2] }; return $script:PostResult }
+        $created = Add-OneDriveShortcut $library 'token' $null
+        $call = $script:PostCalls[0]
+        Assert-Test ($created.name -eq 'UTI Docs - Documentos' -and $call.Uri -eq 'https://graph.microsoft.com/v1.0/me/drive/root/children') 'Shortcut not created in My files'
+        Assert-Test ($call.Body.name -eq 'Documentos' -and $call.Body.remoteItem.id -eq 'root-item' -and $call.Body.remoteItem.parentReference.driveId -eq 'b!drive' -and $call.Body.'@microsoft.graph.conflictBehavior' -eq 'fail') 'Unexpected shortcut request body'
+        foreach ($status in 409, 403, 500) {
+            $script:PostResult = [pscustomobject]@{ GraphError = $status }
+            $message = ''
+            try { $null = Add-OneDriveShortcut $library 'token' $null } catch { $message = $_.Exception.Message }
+            Assert-Test ($message -ne '') ('Shortcut failure not reported: HTTP ' + $status)
+            if ($status -eq 409) { Assert-Test ($message -like '*Já existe um atalho*') 'Duplicate shortcut message unclear' }
+        }
+    }
+
     # Office must get the file address, not the browser viewer link.
     Reset-Scenario
     $script:Item.webUrl = 'https://tenant.sharepoint.com/sites/Docs/_layouts/15/Doc.aspx?sourcedoc=%7B1%7D&file=Planilha.xlsx&action=default'

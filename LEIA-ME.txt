@@ -26,7 +26,10 @@ PRIMEIRA CONEXÃO
 6. Clique em “Conectar”.
 
 Na mesma janela, “Sincronizar com o OneDrive” entrega a biblioteca escolhida ao
-aplicativo OneDrive, como o botão Sincronizar do SharePoint.
+aplicativo OneDrive, como o botão Sincronizar do SharePoint, e “Adicionar
+atalho ao OneDrive” coloca a biblioteca em Meus arquivos do OneDrive, como no
+Teams. Para remover o atalho, exclua-o em Meus arquivos; a biblioteca não é
+afetada.
 
 Nas próximas conexões, a autorização válida já salva será reutilizada. O navegador
 só será aberto quando a Microsoft exigir uma nova autorização.
