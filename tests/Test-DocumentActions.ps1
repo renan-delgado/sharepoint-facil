@@ -125,6 +125,22 @@ try {
     Assert-Test ($target.Uri -eq 'https://graph.microsoft.com/v1.0/drives/drive1/root:/Contratos/A%C3%A7%C3%A3o%20%23%20100%25.xlsx') 'Incorrect segment encoding'
     $metadataUri = Get-DocumentMetadataUri $target.Uri
     Assert-Test ($metadataUri -eq ($target.Uri + '?$select=id,name,webUrl,webDavUrl,file,remoteItem')) 'Unexpected document metadata selection'
+    # A drive mapped to a subfolder: mount, VFS and Graph paths start at that folder.
+    & {
+        $script:Profiles[0] | Add-Member folder 'Clientes/Ação 2026'
+        Assert-Test ((New-MountRequest $script:Profiles[0]).fs -eq 'remote1:Clientes/Ação 2026') 'Subfolder mount does not target the folder'
+        Assert-Test ((Test-ExactMount $script:Profiles[0] @([pscustomobject]@{ MountPoint = 'Z:'; Fs = 'remote1:Clientes/Ação 2026' })) -and
+            -not (Test-ExactMount $script:Profiles[0] @([pscustomobject]@{ MountPoint = 'Z:'; Fs = 'remote1:' }))) 'Subfolder mount state compared against the library root'
+        Assert-Test ((Get-DocumentTarget 'Z:\Contrato.docx').Uri -eq 'https://graph.microsoft.com/v1.0/drives/drive1/root:/Clientes/A%C3%A7%C3%A3o%202026/Contrato.docx') 'Subfolder drive resolved against the library root'
+        Assert-Test ((Get-DocumentTarget 'Z:\').Uri -eq 'https://graph.microsoft.com/v1.0/drives/drive1/root:/Clientes/A%C3%A7%C3%A3o%202026') 'Subfolder drive root not resolved to the folder'
+        Reset-Scenario
+    }
+    foreach ($folder in @('', 'Clientes', 'Clientes/Ação 2026')) {
+        Assert-Test ($null -ne (ConvertTo-SafeProfile ([pscustomobject]@{ remote = 'r'; drive = 'Q'; label = 'x'; folder = $folder }) @{})) ('Safe folder rejected: ' + $folder)
+    }
+    foreach ($folder in @('/Clientes', 'Clientes/', 'a//b', '..', 'a/../b', 'a\b', 'C:', 'pasta.', ' pasta', 'a|b', ('x' * 401))) {
+        Assert-Test ($null -eq (ConvertTo-SafeProfile ([pscustomobject]@{ remote = 'r'; drive = 'Q'; label = 'x'; folder = $folder }) @{})) ('Unsafe folder accepted: ' + $folder)
+    }
     foreach ($path in @('C:\arquivo.xlsx', 'Z:arquivo.xlsx', 'Z:\..\arquivo.xlsx', '\\server\share\arquivo.xlsx', 'Z:\arquivo.xlsx:stream', 'Z:\pasta.\arquivo.xlsx', 'Z:\a|b.xlsx')) {
         Assert-Throws { Get-DocumentTarget $path } ('Unsafe path accepted: ' + $path)
     }
@@ -183,6 +199,35 @@ try {
         $script:SyncDrive.sharePointIds.siteUrl = 'https://tenant.sharepoint.com/sites/UTI-DOCS'
         $script:SyncDrive.sharePointIds.listId = $null
         Assert-Throws { Get-OneDriveSyncUri $library $jwt $null } 'Sync link built without a list ID'
+
+        # A subfolder adds folderId/folderUrl/folderName from the folder item.
+        $script:SyncDrive.sharePointIds.listId = '33333333-3333-3333-3333-333333333333'
+        $script:FolderItem = [pscustomobject]@{ webUrl = 'https://tenant.sharepoint.com/sites/UTI-DOCS/Documentos%20Compartilhados/Clientes'; sharepointIds = [pscustomobject]@{ listItemUniqueId = '44444444-4444-4444-4444-444444444444' } }
+        function Invoke-GraphGet {
+            param($Uri)
+            if ($Uri -like '*/items/*') {
+                Assert-Test ($Uri -eq 'https://graph.microsoft.com/v1.0/drives/b!drive/items/folder1?$select=webUrl,sharepointIds') 'Sync lookup must select the folder SharePoint IDs'
+                return $script:FolderItem
+            }
+            return $script:SyncDrive
+        }
+        $folder = [pscustomobject]@{ Id = 'folder1'; Path = 'Clientes'; Name = 'Clientes' }
+        $uri = Get-OneDriveSyncUri $library $jwt $null $folder
+        Assert-Test ($uri -like '*&listTitle=Documentos&folderId=%7B44444444-4444-4444-4444-444444444444%7D&folderUrl=https%3A%2F%2Ftenant.sharepoint.com%2Fsites%2FUTI-DOCS%2FDocumentos%2520Compartilhados%2FClientes&folderName=Clientes') ('Unexpected subfolder sync link: ' + $uri)
+        $script:FolderItem.webUrl = 'https://evil.example.com/Clientes'
+        Assert-Throws { Get-OneDriveSyncUri $library $jwt $null $folder } 'Sync link accepted a folder on another host'
+    }
+
+    # Folder picker lists only folders, one level at a time.
+    & {
+        $script:Children = @([pscustomobject]@{ id = 'f2'; name = 'Zeta'; folder = @{ childCount = 0 } }, [pscustomobject]@{ id = 'x'; name = 'nota.txt'; file = @{} }, [pscustomobject]@{ id = 'f1'; name = 'Alfa'; folder = @{ childCount = 3 } })
+        function Invoke-GraphPaged {
+            param($Uri)
+            Assert-Test ($Uri -eq 'https://graph.microsoft.com/v1.0/drives/b!drive/items/root/children?$select=id,name,folder&$top=999') 'Folder picker queried an unexpected address'
+            return $script:Children
+        }
+        $folders = @(Get-LibraryFolderList ([pscustomobject]@{ DriveId = 'b!drive' }) 'root' 'token')
+        Assert-Test ($folders.Count -eq 2 -and $folders[0].name -eq 'Alfa' -and $folders[1].name -eq 'Zeta') 'Folder picker listed files or lost the order'
     }
 
     # OneDrive shortcut: a remoteItem in My files pointing at the library root.
@@ -207,6 +252,18 @@ try {
             Assert-Test ($message -ne '') ('Shortcut failure not reported: HTTP ' + $status)
             if ($status -eq 409) { Assert-Test ($message -like '*Já existe um atalho*') 'Duplicate shortcut message unclear' }
         }
+
+        # A subfolder shortcut points at the folder item; no root lookup.
+        function Invoke-GraphGet { throw 'Subfolder shortcut must not look up the library root' }
+        $script:PostResult = [pscustomobject]@{ GraphError = 409; GraphCode = 'notAllowed' }
+        $message = ''
+        try { $null = Add-OneDriveShortcut $library 'token' $null ([pscustomobject]@{ Id = 'folder1'; Path = 'Clientes'; Name = 'Clientes' }) } catch { $message = $_.Exception.Message }
+        Assert-Test ($message -like '*pasta acima*') 'Nested shortcut refusal reported as a name clash'
+        $script:PostResult = [pscustomobject]@{ id = 'local2'; name = 'Clientes' }
+        $script:PostCalls = @()
+        $null = Add-OneDriveShortcut $library 'token' $null ([pscustomobject]@{ Id = 'folder1'; Path = 'Clientes'; Name = 'Clientes' })
+        $call = $script:PostCalls[0]
+        Assert-Test ($call.Body.name -eq 'Clientes' -and $call.Body.remoteItem.id -eq 'folder1' -and $call.Body.remoteItem.parentReference.driveId -eq 'b!drive') 'Subfolder shortcut does not point at the folder'
     }
 
     # Office must get the file address, not the browser viewer link.

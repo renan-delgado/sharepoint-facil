@@ -19,8 +19,9 @@ sob demanda: pastas são listadas ao abrir e arquivos baixados ao usar.
 ## Fluxos principais
 
 1. **Conectar biblioteca:** entrar com a conta Microsoft, escolher site e
-   biblioteca, letra, nome e reconexão no logon. Resultado: unidade no
-   Explorador.
+   biblioteca, letra, nome e reconexão no logon. Opcionalmente, expandir a
+   árvore e escolher uma subpasta; ela vale também para os dois botões do
+   OneDrive. Resultado: unidade no Explorador.
 2. **Sincronizar pelo OneDrive (opcional):** na mesma lista de sites e
    bibliotecas, "Sincronizar com o OneDrive" entrega a biblioteca ao
    aplicativo OneDrive, como o botão Sincronizar do SharePoint. Resultado:

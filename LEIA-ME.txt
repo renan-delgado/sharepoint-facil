@@ -20,7 +20,8 @@ PRIMEIRA CONEXÃO
 
 1. Clique em “Conectar biblioteca”.
 2. Se a conta ainda não estiver autorizada, entre na Microsoft pelo navegador.
-3. Escolha o site e a biblioteca na lista.
+3. Escolha o site e a biblioteca na lista. Para usar só uma pasta, expanda a
+   árvore “Pasta” e clique nela; sem escolha, vale a biblioteca inteira.
 4. Escolha a letra e o nome que aparecerão no Explorador de Arquivos.
 5. Mantenha marcada a reconexão no logon, se desejar.
 6. Clique em “Conectar”.
@@ -29,7 +30,9 @@ Na mesma janela, “Sincronizar com o OneDrive” entrega a biblioteca escolhida
 aplicativo OneDrive, como o botão Sincronizar do SharePoint, e “Adicionar
 atalho ao OneDrive” coloca a biblioteca em Meus arquivos do OneDrive, como no
 Teams. Para remover o atalho, exclua-o em Meus arquivos; a biblioteca não é
-afetada.
+afetada. Os dois botões usam a pasta escolhida na árvore, quando houver. O
+OneDrive não aceita um atalho dentro de um local que já tem atalho ou
+sincronização.
 
 Nas próximas conexões, a autorização válida já salva será reutilizada. O navegador
 só será aberto quando a Microsoft exigir uma nova autorização.

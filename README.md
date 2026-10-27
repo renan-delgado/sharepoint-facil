@@ -10,6 +10,8 @@ sincronizar a biblioteca inteira.
 - Seleção de sites e bibliotecas acessíveis pela conta Microsoft 365, com
   autenticação delegada (cada usuário usa as próprias permissões).
 - Letra, nome e reconexão no logon por biblioteca.
+- Opcional: escolher uma subpasta na árvore de pastas da biblioteca para
+  mapear, sincronizar ou criar o atalho só dela.
 - Opcional: sincronizar qualquer biblioteca da lista pelo próprio OneDrive,
   como o botão Sincronizar do SharePoint, ou adicioná-la como atalho em Meus
   arquivos do OneDrive, como no Teams, sem abrir site por site.

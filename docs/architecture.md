@@ -61,7 +61,15 @@ Seções de `RcloneDriveManager.ps1`, na ordem do arquivo:
 - **Atalho no OneDrive:** `Add-OneDriveShortcut` faz `POST /me/drive/root/children`
   com `remoteItem` apontando para a raiz da biblioteca e `conflictBehavior=fail`
   (API documentada do OneDrive; validada no OneDrive for Business em
-  27/10/2026). O OneDrive prefixa o nome do site; 409 indica atalho existente.
+  27/10/2026). O OneDrive prefixa o nome do site; 409 `nameAlreadyExists`
+  indica nome em uso e 409 `notAllowed`, atalho no mesmo local ou acima.
+- **Subpasta:** a árvore da janela de bibliotecas lista um nível por vez
+  (`Get-LibraryFolderList`). A pasta escolhida vira `folder` no perfil e a
+  unidade monta `remote:Pasta/Sub` (`Get-ProfileMountSource`); `Get-DocumentTarget`
+  soma essa pasta ao caminho. O atalho aponta para o item da pasta. A
+  sincronização acrescenta `folderId={listItemUniqueId}`, `folderUrl` e
+  `folderName` ao link `odopen://sync` (não documentado; validado com o
+  cliente OneDrive em 27/10/2026, que sincronizou só a pasta).
 - **Concorrência:** não há trava compartilhada entre a janela e o Explorador;
   as ações de documento só leem dados, e comandos simultâneos do Explorador
   são enfileirados pela trava do processo (`-DocumentCommand`).

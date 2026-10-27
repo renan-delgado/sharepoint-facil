@@ -114,7 +114,7 @@ permitidos no pacote.
 ## Gerar somente o MSI
 
 ```powershell
-.\installer\scripts\Build-Installer.ps1 -ProductVersion 1.1.7
+.\installer\scripts\Build-Installer.ps1 -ProductVersion 1.1.8
 ```
 
 O script prepara o pacote, valida o SHA-256 e a versão do rclone, restaura o
@@ -127,7 +127,7 @@ Com o WinFsp fixado presente em `third-party\winfsp\winfsp.msi`, execute:
 
 ```powershell
 .\installer\scripts\Build-Installer.ps1 `
-  -ProductVersion 1.1.7 `
+  -ProductVersion 1.1.8 `
   -IncludeBundle `
   -WinFspMsiPath .\installer\third-party\winfsp\winfsp.msi
 ```
@@ -244,3 +244,9 @@ só "Abrir no SharePoint". Chamadas a `/me` no Graph foram eliminadas.
 atalho em Meus arquivos (como no Teams). A trava compartilhada entre a janela e
 os comandos do Explorador foi removida: ela bloqueava "Abrir no SharePoint"
 enquanto uma janela do app estava aberta.
+
+# Versão 1.1.8 — escolha de pasta
+
+A janela de bibliotecas tem uma árvore de pastas carregada sob demanda. A
+pasta escolhida vale para mapear a unidade (só aquela pasta), sincronizar pelo
+OneDrive e adicionar o atalho em Meus arquivos.

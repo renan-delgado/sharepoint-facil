@@ -9,6 +9,7 @@ SharePoint confiável no Windows sem esconder as limitações do backend.
 | Área | Decisão | Motivo |
 |---|---|---|
 | Backend | `onedrive`, `drive_id` da biblioteca e `drive_type=documentLibrary` | Impede que a unidade caia no OneDrive pessoal da conta. |
+| Subpasta | o remote continua na raiz da biblioteca; a unidade monta `remote:Pasta/Sub` (`folder` no perfil, `Get-ProfileMountSource`) | O `listmounts` devolve o mesmo fs e o `vfs/stats` aceita esse fs, então envio pendente e desmontagem seguem iguais (validado em biblioteca real em 27/10/2026). `root_folder_id` continua recusado: os comandos de documento resolvem o caminho a partir da raiz da biblioteca. |
 | Autorização | OAuth delegado por usuário e token protegido no perfil do Windows | Mantém as permissões reais do Microsoft 365 e evita uma identidade compartilhada. |
 | Montagem | WinFsp, `cmount`, `network_mode` e nome de volume único | É a implementação disponível no binário oficial Windows e produz uma unidade de rede no Explorer. |
 | Arquivos Office | `vfs_cache_mode=full`, write-back de 2 s e cache exclusivo do controlador | Permite seek, leitura/gravação simultânea, arquivos temporários, substituição e repetição de uploads falhos. |

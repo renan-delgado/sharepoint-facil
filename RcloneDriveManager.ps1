@@ -16,7 +16,7 @@ Add-Type -AssemblyName System.Security
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:AppName = 'SharePoint Fácil'
-$script:AppVersion = '1.1.7'
+$script:AppVersion = '1.1.8'
 $script:ExpectedRcloneHash = '033EEE51C9AD47C2DE2624B6674D355274BCD6CF0027A5F85DB4437BA24AE81C'
 $script:RclonePath = Join-Path $PSScriptRoot 'rclone.exe'
 $script:DataDir = Join-Path $env:LOCALAPPDATA 'SharePointFacil'
@@ -1156,6 +1156,8 @@ function ConvertTo-SafeProfile {
     $label = ([string]$Source.label).Trim()
     if ($remote.Length -lt 1 -or $remote.Length -gt 100 -or $remote -match '[:\x00-\x1F]') { return $null }
     if ($drive -notmatch '^[D-Z]$' -or $SeenDrives.ContainsKey($drive)) { return $null }
+    $folder = [string]$Source.folder
+    if (-not (Test-SafeFolderPath $folder)) { return $null }
     if ($label.Length -lt 1) { $label = $remote }
     if ($label.Length -gt 64) { $label = $label.Substring(0, 64) }
     $label = $label -replace '[\\/:*?"<>|\x00-\x1F]', '-'
@@ -1172,6 +1174,7 @@ function ConvertTo-SafeProfile {
         libraryName = [string]$Source.libraryName
         webUrl = [string]$Source.webUrl
         driveId = [string]$Source.driveId
+        folder = $folder
     }
 }
 
@@ -1441,8 +1444,17 @@ function Get-AccessibleLibraries {
     } finally { Close-BusyWindow $busy }
 }
 
+function Get-LibraryFolderList {
+    param($Library, [string]$ParentId, [string]$AccessToken)
+    # One level of subfolders for the folder picker; files are skipped.
+    # ponytail: pages through files too; a folder with thousands of files lists slowly.
+    $uri = 'https://graph.microsoft.com/v1.0/drives/' + [Uri]::EscapeDataString([string]$Library.DriveId) +
+        '/items/' + [Uri]::EscapeDataString($ParentId) + '/children?$select=id,name,folder&$top=999'
+    return @(Invoke-GraphPaged $uri $AccessToken $null | Where-Object { $_.folder -and $_.id -and $_.name } | Sort-Object name)
+}
+
 function Get-OneDriveSyncUri {
-    param($Library, [string]$AccessToken, $Busy)
+    param($Library, [string]$AccessToken, $Busy, $Folder = $null)
     # The same link the SharePoint "Sync" button hands to the OneDrive client.
     $driveUri = 'https://graph.microsoft.com/v1.0/drives/' + [Uri]::EscapeDataString([string]$Library.DriveId) + '?$select=name,sharePointIds'
     $drive = Invoke-GraphGet $driveUri $AccessToken $Busy
@@ -1466,6 +1478,20 @@ function Get-OneDriveSyncUri {
         webTitle = [string]$Library.SiteName
         listTitle = [string]$drive.name
     }
+    if ($Folder) {
+        # A subfolder adds the parameters SharePoint's Sync button sends inside a folder.
+        $itemUri = 'https://graph.microsoft.com/v1.0/drives/' + [Uri]::EscapeDataString([string]$Library.DriveId) +
+            '/items/' + [Uri]::EscapeDataString([string]$Folder.Id) + '?$select=webUrl,sharepointIds'
+        $item = Invoke-GraphGet $itemUri $AccessToken $Busy
+        if (-not [Guid]::TryParse([string]$item.sharepointIds.listItemUniqueId, [ref]$guid)) { throw 'A Microsoft não retornou o identificador desta pasta.' }
+        $folderUrl = [Uri][string]$item.webUrl
+        if (-not $folderUrl.IsAbsoluteUri -or $folderUrl.Scheme -ne 'https' -or $folderUrl.Host -ne $web.Host) {
+            throw 'A Microsoft retornou um endereço de pasta inesperado.'
+        }
+        $query.folderId = '{' + $item.sharepointIds.listItemUniqueId + '}'
+        $query.folderUrl = $folderUrl.AbsoluteUri
+        $query.folderName = [string]$Folder.Name
+    }
     return 'odopen://sync/?' + ((@($query.GetEnumerator()) | ForEach-Object { $_.Key + '=' + [Uri]::EscapeDataString([string]$_.Value) }) -join '&')
 }
 
@@ -1483,24 +1509,36 @@ function Invoke-GraphPost {
         $response = Wait-UiTask ($client.PostAsync($parsed, $content)) $Busy 35
         $text = Wait-UiTask ($response.Content.ReadAsStringAsync()) $Busy 15
         if ($response.IsSuccessStatusCode) { return ($text | ConvertFrom-Json) }
-        return [pscustomobject]@{ GraphError = [int]$response.StatusCode }
+        $code = ''
+        try { $code = [string]($text | ConvertFrom-Json).error.code } catch { $code = '' }
+        return [pscustomobject]@{ GraphError = [int]$response.StatusCode; GraphCode = $code }
     } finally { $content.Dispose(); $client.Dispose() }
 }
 
 function Add-OneDriveShortcut {
-    param($Library, [string]$AccessToken, $Busy)
+    param($Library, [string]$AccessToken, $Busy, $Folder = $null)
     # "Add shortcut to My files": a remoteItem in the user's OneDrive root
-    # pointing at the library root. OneDrive prefixes the site name itself.
-    $rootUri = 'https://graph.microsoft.com/v1.0/drives/' + [Uri]::EscapeDataString([string]$Library.DriveId) + '/root?$select=id'
-    $root = Invoke-GraphGet $rootUri $AccessToken $Busy
-    if (-not $root.id) { throw 'A Microsoft não retornou a pasta raiz desta biblioteca.' }
+    # pointing at the library root or a subfolder. OneDrive prefixes the site
+    # name itself for a library root.
+    if ($Folder) {
+        $targetId = [string]$Folder.Id
+        $name = [string]$Folder.Name
+    } else {
+        $rootUri = 'https://graph.microsoft.com/v1.0/drives/' + [Uri]::EscapeDataString([string]$Library.DriveId) + '/root?$select=id'
+        $root = Invoke-GraphGet $rootUri $AccessToken $Busy
+        if (-not $root.id) { throw 'A Microsoft não retornou a pasta raiz desta biblioteca.' }
+        $targetId = [string]$root.id
+        $name = [string]$Library.LibraryName
+    }
     $body = @{
-        name = [string]$Library.LibraryName
-        remoteItem = @{ id = [string]$root.id; parentReference = @{ driveId = [string]$Library.DriveId } }
+        name = $name
+        remoteItem = @{ id = $targetId; parentReference = @{ driveId = [string]$Library.DriveId } }
         '@microsoft.graph.conflictBehavior' = 'fail'
     }
     $created = Invoke-GraphPost 'https://graph.microsoft.com/v1.0/me/drive/root/children' $AccessToken $body $Busy
-    if ($created.GraphError -eq 409) { throw 'Já existe um atalho para esta biblioteca em Meus arquivos do OneDrive.' }
+    # OneDrive refuses a shortcut below a folder that already has one ("notAllowed").
+    if ($created.GraphError -eq 409 -and $created.GraphCode -eq 'notAllowed') { throw 'Meus arquivos do OneDrive já tem um atalho para este local ou para uma pasta acima dele.' }
+    if ($created.GraphError -eq 409) { throw ('Já existe um atalho ou uma pasta chamada "{0}" em Meus arquivos do OneDrive.' -f $name) }
     if ($created.GraphError -eq 403) { throw (New-Object Security.SecurityException('A conta não tem permissão para criar atalhos no OneDrive.')) }
     if ($created.GraphError) { throw ('A Microsoft não criou o atalho (HTTP {0}).' -f $created.GraphError) }
     return $created
@@ -1519,9 +1557,11 @@ function Get-DocumentTarget {
     $profiles = @($script:Profiles | Where-Object { $_.drive -eq $full.Substring(0, 1) })
     if ($profiles.Count -ne 1) { throw 'Este caminho não pertence a uma unidade do SharePoint Fácil.' }
     $relative = $full.Substring(3).TrimEnd('\')
-    $encoded = (@($relative.Split('\') | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/')
+    # A drive mapped to a subfolder starts at that folder of the library.
+    $segments = @(([string]$profiles[0].folder).Split('/') | Where-Object { $_ }) + @($relative.Split('\') | Where-Object { $_ })
+    $encoded = (@($segments | ForEach-Object { [Uri]::EscapeDataString($_) }) -join '/')
     $base = 'https://graph.microsoft.com/v1.0/drives/' + [Uri]::EscapeDataString([string]$profiles[0].driveId)
-    $uri = if ($relative) { $base + '/root:/' + $encoded } else { $base + '/root' }
+    $uri = if ($encoded) { $base + '/root:/' + $encoded } else { $base + '/root' }
     return [pscustomobject]@{ Profile = $profiles[0]; Relative = $relative; Uri = $uri }
 }
 
@@ -1529,7 +1569,7 @@ function Get-ProfileAccessToken {
     param($Profile)
     Assert-ProfileRemoteTarget $Profile
     # Refresh through this exact remote. Never borrow _spf-auth or another account.
-    $null = Invoke-ControllerRequest 'operations/list' @{ fs = ($Profile.remote + ':'); remote = ''; opt = @{ dirsOnly = $true; noModTime = $true } } $script:Controller 35
+    $null = Invoke-ControllerRequest 'operations/list' @{ fs = (Get-ProfileMountSource $Profile); remote = ''; opt = @{ dirsOnly = $true; noModTime = $true } } $script:Controller 35
     $config = Get-AppConfigDump
     $remote = $config.PSObject.Properties[[string]$Profile.remote]
     if ($remote.Value.root_folder_id) { throw 'Este mapeamento usa uma subpasta técnica. Reconecte a biblioteca pela seleção de bibliotecas antes de usar os comandos de documentos.' }
@@ -1598,7 +1638,7 @@ function Assert-DocumentCacheClean {
     $state = Get-ProfileMountState $Profile $mounts
     if ($state -eq 'Conflict') { throw 'Esta letra está sendo usada por outra unidade.' }
     if ($state -eq 'Mounted') {
-        $stats = Invoke-ControllerRequest 'vfs/stats' @{ fs = ($Profile.remote + ':') } $script:Controller 8
+        $stats = Invoke-ControllerRequest 'vfs/stats' @{ fs = (Get-ProfileMountSource $Profile) } $script:Controller 8
         if (-not $stats.diskCache -or
             -not $stats.diskCache.PSObject.Properties['uploadsQueued'] -or
             -not $stats.diskCache.PSObject.Properties['uploadsInProgress'] -or
@@ -1671,18 +1711,35 @@ function Get-ActiveMounts {
 function Test-ExactMount {
     param($Profile, [object[]]$ActiveMounts)
     return @($ActiveMounts | Where-Object {
-        [string]$_.MountPoint -eq ($Profile.drive + ':') -and [string]$_.Fs -eq ($Profile.remote + ':')
+        [string]$_.MountPoint -eq ($Profile.drive + ':') -and [string]$_.Fs -eq (Get-ProfileMountSource $Profile)
     }).Count -gt 0
 }
 
 function Get-ProfileMountState {
     param($Profile, [object[]]$ActiveMounts)
     $mount = @($ActiveMounts | Where-Object {
-        [string]$_.MountPoint -eq ($Profile.drive + ':') -and [string]$_.Fs -eq ($Profile.remote + ':')
+        [string]$_.MountPoint -eq ($Profile.drive + ':') -and [string]$_.Fs -eq (Get-ProfileMountSource $Profile)
     } | Select-Object -First 1)
     if ($mount.Count -gt 0) { return 'Mounted' }
     if (Get-DriveInUse $Profile.drive) { return 'Conflict' }
     return 'Stopped'
+}
+
+function Test-SafeFolderPath {
+    param([string]$Folder)
+    # Library-relative folder of a mount, '/'-separated; '' is the library root.
+    if ($Folder -eq '') { return $true }
+    if ($Folder.Length -gt 400) { return $false }
+    foreach ($segment in $Folder.Split('/')) {
+        if ($segment -in @('', '.', '..') -or $segment -match '[\x00-\x1f\\:*?"<>|]' -or $segment -match '^ |[. ]$') { return $false }
+    }
+    return $true
+}
+
+function Get-ProfileMountSource {
+    param($Profile)
+    # The rclone fs string of the mount and its VFS: remote root or a subfolder.
+    return [string]$Profile.remote + ':' + [string]$Profile.folder
 }
 
 function Assert-ProfileRemoteTarget {
@@ -1701,7 +1758,7 @@ function Assert-ProfileRemoteTarget {
 function New-MountRequest {
     param($Profile)
     return [ordered]@{
-        fs = ($Profile.remote + ':')
+        fs = (Get-ProfileMountSource $Profile)
         mountPoint = ($Profile.drive + ':')
         mountType = 'cmount'
         network_mode = $true
@@ -1765,7 +1822,7 @@ function Start-Mount {
         $mountError = $_
         try {
             $partial = @(Get-ActiveMounts | Where-Object {
-                [string]$_.MountPoint -eq ($Profile.drive + ':') -and [string]$_.Fs -eq ($Profile.remote + ':')
+                [string]$_.MountPoint -eq ($Profile.drive + ':') -and [string]$_.Fs -eq (Get-ProfileMountSource $Profile)
             } | Select-Object -First 1)
             if ($partial.Count -gt 0) {
                 $null = Invoke-ControllerRequest 'mount/unmount' @{ mountPoint = ($Profile.drive + ':') } $script:Controller 20
@@ -1869,7 +1926,7 @@ function Wait-PendingUploads {
     try {
         while ($true) {
             try {
-                $stats = Invoke-ControllerRequest 'vfs/stats' @{ fs = ($Profile.remote + ':') } $script:Controller 8
+                $stats = Invoke-ControllerRequest 'vfs/stats' @{ fs = (Get-ProfileMountSource $Profile) } $script:Controller 8
                 $queued = [int]$stats.diskCache.uploadsQueued
                 $uploading = [int]$stats.diskCache.uploadsInProgress
                 $errors = [int]$stats.diskCache.erroredFiles
@@ -1928,7 +1985,7 @@ function Wait-PendingUploads {
 
 function Get-SafeVfsCachePaths {
     param($Profile)
-    $stats = Invoke-ControllerRequest 'vfs/stats' @{ fs = ($Profile.remote + ':') } $script:Controller 8
+    $stats = Invoke-ControllerRequest 'vfs/stats' @{ fs = (Get-ProfileMountSource $Profile) } $script:Controller 8
     $cacheInfo = Get-ProfileVfsCacheInfo $Profile $stats
     if ($cacheInfo.IsUncertain) { throw 'O cache local não pôde ser validado com segurança.' }
     return @($cacheInfo.Paths)
@@ -2026,10 +2083,10 @@ function Set-DialogButtonStyle {
 }
 
 function Show-NewSharePointMappingDialog {
-    param([object[]]$Libraries, [string]$AccountName)
+    param([object[]]$Libraries, [string]$AccountName, [string]$AccessToken)
     $dialog = New-Object Windows.Forms.Form
     $dialog.Text = 'Conectar biblioteca'
-    $dialog.Size = New-Object Drawing.Size(780, 470)
+    $dialog.Size = New-Object Drawing.Size(780, 630)
     $dialog.FormBorderStyle = 'FixedDialog'
     $dialog.MaximizeBox = $false
     $dialog.MinimizeBox = $false
@@ -2083,14 +2140,27 @@ function Show-NewSharePointMappingDialog {
     $urlLabel.Size = New-Object Drawing.Size(710, 20)
     $dialog.Controls.Add($urlLabel)
 
+    $folderLabel = New-Object Windows.Forms.Label
+    $folderLabel.Text = 'Pasta (opcional: expanda e escolha uma subpasta)'
+    $folderLabel.AutoSize = $true
+    $folderLabel.ForeColor = $script:Colors.Ink
+    $folderLabel.Location = New-Object Drawing.Point(28, 204)
+    $dialog.Controls.Add($folderLabel)
+    $folderTree = New-Object Windows.Forms.TreeView
+    $folderTree.Location = New-Object Drawing.Point(31, 228)
+    $folderTree.Size = New-Object Drawing.Size(712, 130)
+    $folderTree.HideSelection = $false
+    $folderTree.AccessibleName = 'Pasta da biblioteca'
+    $dialog.Controls.Add($folderTree)
+
     $driveLabel = New-Object Windows.Forms.Label
     $driveLabel.Text = 'Letra da unidade'
     $driveLabel.AutoSize = $true
-    $driveLabel.Location = New-Object Drawing.Point(28, 215)
+    $driveLabel.Location = New-Object Drawing.Point(28, 375)
     $dialog.Controls.Add($driveLabel)
     $driveBox = New-Object Windows.Forms.ComboBox
     $driveBox.DropDownStyle = 'DropDownList'
-    $driveBox.Location = New-Object Drawing.Point(31, 239)
+    $driveBox.Location = New-Object Drawing.Point(31, 399)
     $driveBox.Size = New-Object Drawing.Size(112, 28)
     [void]$driveBox.Items.AddRange([object[]](Get-AvailableDriveLetters))
     $driveBox.AccessibleName = 'Letra da unidade no Explorador'
@@ -2099,10 +2169,10 @@ function Show-NewSharePointMappingDialog {
     $nameLabel = New-Object Windows.Forms.Label
     $nameLabel.Text = 'Nome no Explorador de Arquivos'
     $nameLabel.AutoSize = $true
-    $nameLabel.Location = New-Object Drawing.Point(177, 215)
+    $nameLabel.Location = New-Object Drawing.Point(177, 375)
     $dialog.Controls.Add($nameLabel)
     $nameBox = New-Object Windows.Forms.TextBox
-    $nameBox.Location = New-Object Drawing.Point(180, 239)
+    $nameBox.Location = New-Object Drawing.Point(180, 399)
     $nameBox.Size = New-Object Drawing.Size(563, 28)
     $nameBox.MaxLength = 64
     $nameBox.AccessibleName = 'Nome da unidade no Explorador'
@@ -2112,26 +2182,26 @@ function Show-NewSharePointMappingDialog {
     $hint.Text = 'Você poderá alterar a letra e o nome depois.'
     $hint.ForeColor = $script:Colors.Muted
     $hint.AutoSize = $true
-    $hint.Location = New-Object Drawing.Point(179, 272)
+    $hint.Location = New-Object Drawing.Point(179, 432)
     $dialog.Controls.Add($hint)
 
     $autoCheck = New-Object Windows.Forms.CheckBox
     $autoCheck.Text = 'Reconectar automaticamente quando eu entrar no Windows'
     $autoCheck.Checked = $true
-    $autoCheck.Location = New-Object Drawing.Point(31, 307)
+    $autoCheck.Location = New-Object Drawing.Point(31, 467)
     $autoCheck.Size = New-Object Drawing.Size(430, 26)
     $dialog.Controls.Add($autoCheck)
 
     $connect = New-Object Windows.Forms.Button
     $connect.Text = 'Conectar'
-    $connect.Location = New-Object Drawing.Point(544, 367)
+    $connect.Location = New-Object Drawing.Point(544, 527)
     $connect.Size = New-Object Drawing.Size(96, 36)
     Set-DialogButtonStyle $connect $true
     $dialog.Controls.Add($connect)
     $cancel = New-Object Windows.Forms.Button
     $cancel.Text = 'Cancelar'
     $cancel.DialogResult = 'Cancel'
-    $cancel.Location = New-Object Drawing.Point(647, 367)
+    $cancel.Location = New-Object Drawing.Point(647, 527)
     $cancel.Size = New-Object Drawing.Size(96, 36)
     Set-DialogButtonStyle $cancel $false
     $dialog.Controls.Add($cancel)
@@ -2139,24 +2209,41 @@ function Show-NewSharePointMappingDialog {
     $dialog.CancelButton = $cancel
     $oneDrive = New-Object Windows.Forms.Button
     $oneDrive.Text = 'Sincronizar com o OneDrive'
-    $oneDrive.Location = New-Object Drawing.Point(31, 367)
+    $oneDrive.Location = New-Object Drawing.Point(31, 527)
     $oneDrive.Size = New-Object Drawing.Size(220, 36)
     $oneDrive.AccessibleName = 'Sincronizar a biblioteca escolhida pelo aplicativo OneDrive'
     Set-DialogButtonStyle $oneDrive $false
     $dialog.Controls.Add($oneDrive)
     $shortcut = New-Object Windows.Forms.Button
     $shortcut.Text = 'Adicionar atalho ao OneDrive'
-    $shortcut.Location = New-Object Drawing.Point(259, 367)
+    $shortcut.Location = New-Object Drawing.Point(259, 527)
     $shortcut.Size = New-Object Drawing.Size(230, 36)
     $shortcut.AccessibleName = 'Adicionar a biblioteca escolhida como atalho em Meus arquivos do OneDrive'
     Set-DialogButtonStyle $shortcut $false
     $dialog.Controls.Add($shortcut)
 
-    $updateLibrary = {
+    # Node.Tag: Id (Graph item, 'root' for the library), Path ('/'-separated,
+    # '' for the root), Name, Loaded. Children load when a node is expanded.
+    $newFolderNode = {
+        param([string]$Text, $Tag, [bool]$HasChildren)
+        $node = New-Object Windows.Forms.TreeNode($Text)
+        $node.Tag = $Tag
+        if ($HasChildren) { [void]$node.Nodes.Add('Carregando...') }
+        return $node
+    }
+    $getSelectedFolder = {
+        $node = $folderTree.SelectedNode
+        if (-not $node -or -not $node.Tag.Path) { return $null }
+        return $node.Tag
+    }
+    $state = @{ DriveId = '' }
+    $updateName = {
         $entry = $libraryBox.SelectedItem
         if (-not $entry) { return }
-        $urlLabel.Text = $entry.WebUrl
-        $suggested = if ($entry.LibraryName -match '^(Documentos|Documents|Shared Documents)$') {
+        $folder = & $getSelectedFolder
+        $suggested = if ($folder) {
+            '{0} - {1}' -f $entry.SiteName, $folder.Name
+        } elseif ($entry.LibraryName -match '^(Documentos|Documents|Shared Documents)$') {
             $entry.SiteName
         } else {
             '{0} - {1}' -f $entry.SiteName, $entry.LibraryName
@@ -2164,6 +2251,43 @@ function Show-NewSharePointMappingDialog {
         if ($suggested.Length -gt 64) { $suggested = $suggested.Substring(0, 64) }
         $nameBox.Text = $suggested -replace '[\\/:*?"<>|\x00-\x1F]', '-'
     }
+    $updateLibrary = {
+        $entry = $libraryBox.SelectedItem
+        if (-not $entry) { return }
+        $urlLabel.Text = $entry.WebUrl
+        # Typing in the box raises TextChanged; rebuild the tree only for another library.
+        if ($state.DriveId -ne $entry.DriveId) {
+            $state.DriveId = $entry.DriveId
+            $folderTree.Nodes.Clear()
+            $root = & $newFolderNode ($entry.LibraryName + ' (biblioteca inteira)') ([pscustomobject]@{ Id = 'root'; Path = ''; Name = $entry.LibraryName; Loaded = $false }) $true
+            [void]$folderTree.Nodes.Add($root)
+            $folderTree.SelectedNode = $root
+        }
+        & $updateName
+    }
+    $folderTree.Add_BeforeExpand({
+        $e = $_
+        $tag = $e.Node.Tag
+        if ($tag.Loaded) { return }
+        $dialog.UseWaitCursor = $true
+        try {
+            $children = @(Get-LibraryFolderList $libraryBox.SelectedItem $tag.Id $AccessToken)
+            $e.Node.Nodes.Clear()
+            foreach ($child in $children) {
+                $childPath = if ($tag.Path) { $tag.Path + '/' + $child.name } else { [string]$child.name }
+                # Names the drive cannot represent stay out of the picker.
+                if (-not (Test-SafeFolderPath $childPath)) { continue }
+                $childTag = [pscustomobject]@{ Id = [string]$child.id; Path = $childPath; Name = [string]$child.name; Loaded = $false }
+                [void]$e.Node.Nodes.Add((& $newFolderNode ([string]$child.name) $childTag ([int]$child.folder.childCount -gt 0)))
+            }
+            $tag.Loaded = $true
+        } catch {
+            $e.Cancel = $true
+            Write-AppLog 'WARN' ('Pastas não listadas: ' + $_.Exception.Message)
+            [Windows.Forms.MessageBox]::Show('Não foi possível listar as pastas: ' + $_.Exception.Message, $script:AppName, 'OK', 'Warning') | Out-Null
+        } finally { $dialog.UseWaitCursor = $false }
+    })
+    $folderTree.Add_AfterSelect($updateName)
     $libraryBox.Add_SelectedIndexChanged($updateLibrary)
     $libraryBox.Add_TextChanged($updateLibrary)
     if ($libraryBox.Items.Count -gt 0) { $libraryBox.SelectedIndex = 0 }
@@ -2186,6 +2310,7 @@ function Show-NewSharePointMappingDialog {
         $dialog.Tag = [pscustomobject]@{
             Action = 'Mount'
             Library = $selectedLibrary
+            Folder = (& $getSelectedFolder)
             DriveLetter = [string]$driveBox.SelectedItem
             Label = $nameBox.Text.Trim()
             AutoMount = $autoCheck.Checked
@@ -2198,7 +2323,7 @@ function Show-NewSharePointMappingDialog {
             [Windows.Forms.MessageBox]::Show('Escolha uma biblioteca da lista.', $script:AppName, 'OK', 'Warning') | Out-Null
             return
         }
-        $dialog.Tag = [pscustomobject]@{ Action = 'OneDrive'; Library = $libraryBox.SelectedItem }
+        $dialog.Tag = [pscustomobject]@{ Action = 'OneDrive'; Library = $libraryBox.SelectedItem; Folder = (& $getSelectedFolder) }
         $dialog.DialogResult = 'OK'
         $dialog.Close()
     })
@@ -2207,7 +2332,7 @@ function Show-NewSharePointMappingDialog {
             [Windows.Forms.MessageBox]::Show('Escolha uma biblioteca da lista.', $script:AppName, 'OK', 'Warning') | Out-Null
             return
         }
-        $dialog.Tag = [pscustomobject]@{ Action = 'OneDriveShortcut'; Library = $libraryBox.SelectedItem }
+        $dialog.Tag = [pscustomobject]@{ Action = 'OneDriveShortcut'; Library = $libraryBox.SelectedItem; Folder = (& $getSelectedFolder) }
         $dialog.DialogResult = 'OK'
         $dialog.Close()
     })
@@ -2364,11 +2489,13 @@ function Add-SharePointLibrary {
         if ($script:AccountLabel) {
             $script:AccountLabel.Text = if ($accountName) { 'Conta Microsoft: ' + $accountName } else { 'Conta Microsoft autorizada' }
         }
-        $mapping = Show-NewSharePointMappingDialog $libraries $accountName
+        $mapping = Show-NewSharePointMappingDialog $libraries $accountName ([string]$oauth.Data.access_token)
         if (-not $mapping) { return 'Canceled' }
+        $folderPath = if ($mapping.Folder) { [string]$mapping.Folder.Path } else { '' }
+        if (-not (Test-SafeFolderPath $folderPath)) { throw 'O nome da pasta escolhida não é compatível com uma unidade.' }
         if ($mapping.Action -eq 'OneDrive') {
             $busy = New-GraphBusyWindow 'Preparando a sincronização pelo OneDrive...'
-            try { $syncUri = Get-OneDriveSyncUri $mapping.Library ([string]$oauth.Data.access_token) $busy }
+            try { $syncUri = Get-OneDriveSyncUri $mapping.Library ([string]$oauth.Data.access_token) $busy $mapping.Folder }
             finally { Close-BusyWindow $busy }
             try { Open-DocumentUri $syncUri }
             catch {
@@ -2380,7 +2507,7 @@ function Add-SharePointLibrary {
         }
         if ($mapping.Action -eq 'OneDriveShortcut') {
             $busy = New-GraphBusyWindow 'Criando o atalho no OneDrive...'
-            try { $created = Add-OneDriveShortcut $mapping.Library ([string]$oauth.Data.access_token) $busy }
+            try { $created = Add-OneDriveShortcut $mapping.Library ([string]$oauth.Data.access_token) $busy $mapping.Folder }
             catch [OperationCanceledException] { throw }
             catch {
                 Write-AppLog 'WARN' ('Atalho no OneDrive não criado: ' + $_.Exception.Message)
@@ -2404,7 +2531,7 @@ function Add-SharePointLibrary {
         New-AppRemote $remoteName $parameters
         try {
             $null = Invoke-ControllerRequest 'operations/list' @{
-                fs = ($remoteName + ':')
+                fs = ($remoteName + ':' + $folderPath)
                 remote = ''
                 opt = @{ dirsOnly = $true; noModTime = $true }
             } $script:Controller 45
@@ -2423,6 +2550,7 @@ function Add-SharePointLibrary {
             libraryName = [string]$mapping.Library.LibraryName
             webUrl = [string]$mapping.Library.WebUrl
             driveId = [string]$mapping.Library.DriveId
+            folder = $folderPath
         }
         $script:Profiles += $profile
         try {
@@ -2831,13 +2959,14 @@ function Build-MainForm {
             }
             if ($state -eq 'Mounted') {
                 try {
-                    $stats = Invoke-ControllerRequest 'vfs/stats' @{ fs = ($profile.remote + ':') } $script:Controller 2
+                    $stats = Invoke-ControllerRequest 'vfs/stats' @{ fs = (Get-ProfileMountSource $profile) } $script:Controller 2
                     $pending = [int]$stats.diskCache.uploadsQueued + [int]$stats.diskCache.uploadsInProgress
                     if ($pending -gt 0) { $statusText = 'Enviando (' + $pending + ')' }
                 } catch {}
             }
             $siteText = if ($profile.siteName) { $profile.siteName } else { 'SharePoint' }
             $libraryText = if ($profile.libraryName) { $profile.libraryName } else { $profile.label }
+            if ($profile.folder) { $libraryText += ' / ' + $profile.folder }
             $rowIndex = $script:Grid.Rows.Add($statusText, ($profile.drive + ':'), $profile.label, $siteText, $libraryText, $profile.autoMount)
             $row = $script:Grid.Rows[$rowIndex]
             $row.Tag = $profile
@@ -2973,7 +3102,7 @@ function Build-MainForm {
             if ($profile -and (Get-ProfileMountState $profile (Get-ActiveMounts -ThrowOnError)) -eq 'Mounted') {
                 & $script:SetStatus ('Atualizando {0}:...' -f $profile.drive) $script:Colors.Teal
                 Assert-DocumentCacheClean $profile
-                $null = Invoke-ControllerRequest 'vfs/forget' @{ fs = ($profile.remote + ':') } $script:Controller 8
+                $null = Invoke-ControllerRequest 'vfs/forget' @{ fs = (Get-ProfileMountSource $profile) } $script:Controller 8
                 Notify-ProfileExplorerViews $profile
             }
             & $script:RefreshGrid
@@ -3111,7 +3240,7 @@ function Invoke-SelfTest {
         } finally { $officeStream.Dispose() }
         Move-Item -LiteralPath $temporaryPath -Destination $officePath -Force
         if (-not (Wait-PendingUploads $profile -TimeoutSeconds 45 -Quiet)) { throw 'A substituição do teste Office não terminou de enviar.' }
-        $remoteStat = Invoke-ControllerRequest 'operations/stat' @{ fs = ($profile.remote + ':'); remote = 'verificacao-office.xlsx' } $script:Controller 15
+        $remoteStat = Invoke-ControllerRequest 'operations/stat' @{ fs = (Get-ProfileMountSource $profile); remote = 'verificacao-office.xlsx' } $script:Controller 15
         if (-not $remoteStat.item -or [int64]$remoteStat.item.Size -ne [int64]$replacement.Length) {
             throw 'O arquivo substituído pelo padrão do Office não foi confirmado no remote.'
         }
@@ -3128,7 +3257,7 @@ function Invoke-SelfTest {
         $unsafeHandleObserved = $false
         $dirtyDeadline = (Get-Date).AddSeconds(5)
         while ((Get-Date) -lt $dirtyDeadline) {
-            $dirtyStats = Invoke-ControllerRequest 'vfs/stats' @{ fs = ($profile.remote + ':') } $script:Controller 8
+            $dirtyStats = Invoke-ControllerRequest 'vfs/stats' @{ fs = (Get-ProfileMountSource $profile) } $script:Controller 8
             $dirtyCache = Get-ProfileVfsCacheInfo $profile $dirtyStats
             if ($dirtyCache.IsDirty -or [int]$dirtyStats.inUse -gt 0) { $unsafeHandleObserved = $true; break }
             Start-Sleep -Milliseconds 150

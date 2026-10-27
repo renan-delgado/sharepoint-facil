@@ -1,6 +1,6 @@
 ﻿<Project Sdk="WixToolset.Sdk/4.0.6">
   <PropertyGroup>
-    <ProductVersion Condition="'$(ProductVersion)' == ''">1.1.7</ProductVersion>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.1.8</ProductVersion>
     <ProductCode Condition="'$(ProductCode)' == ''">*</ProductCode>
     <ProductManufacturer Condition="'$(ProductManufacturer)' == ''">UTI DA INFORMATICA LTDA</ProductManufacturer>
     <PayloadDir Condition="'$(PayloadDir)' == ''">$(MSBuildProjectDirectory)\build\payload</PayloadDir>
