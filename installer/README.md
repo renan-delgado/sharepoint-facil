@@ -114,7 +114,7 @@ permitidos no pacote.
 ## Gerar somente o MSI
 
 ```powershell
-.\installer\scripts\Build-Installer.ps1 -ProductVersion 1.1.6
+.\installer\scripts\Build-Installer.ps1 -ProductVersion 1.1.7
 ```
 
 O script prepara o pacote, valida o SHA-256 e a versão do rclone, restaura o
@@ -127,7 +127,7 @@ Com o WinFsp fixado presente em `third-party\winfsp\winfsp.msi`, execute:
 
 ```powershell
 .\installer\scripts\Build-Installer.ps1 `
-  -ProductVersion 1.1.6 `
+  -ProductVersion 1.1.7 `
   -IncludeBundle `
   -WinFspMsiPath .\installer\third-party\winfsp\winfsp.msi
 ```
@@ -237,3 +237,10 @@ simbólicos (`Links`) foi desligada no mount.
 `odopen://sync` do botão do SharePoint. Os comandos próprios de reserva,
 coautoria e check-in saíram da janela e do Explorador; o menu de contexto tem
 só "Abrir no SharePoint". Chamadas a `/me` no Graph foram eliminadas.
+
+# Versão 1.1.7 — atalho no OneDrive
+
+"Adicionar atalho ao OneDrive" na janela de bibliotecas cria a biblioteca como
+atalho em Meus arquivos (como no Teams). A trava compartilhada entre a janela e
+os comandos do Explorador foi removida: ela bloqueava "Abrir no SharePoint"
+enquanto uma janela do app estava aberta.

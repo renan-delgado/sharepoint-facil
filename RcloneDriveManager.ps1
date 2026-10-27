@@ -16,7 +16,7 @@ Add-Type -AssemblyName System.Security
 [System.Windows.Forms.Application]::EnableVisualStyles()
 
 $script:AppName = 'SharePoint Fácil'
-$script:AppVersion = '1.1.6'
+$script:AppVersion = '1.1.7'
 $script:ExpectedRcloneHash = '033EEE51C9AD47C2DE2624B6674D355274BCD6CF0027A5F85DB4437BA24AE81C'
 $script:RclonePath = Join-Path $PSScriptRoot 'rclone.exe'
 $script:DataDir = Join-Path $env:LOCALAPPDATA 'SharePointFacil'
